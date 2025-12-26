@@ -1,0 +1,148 @@
+{
+  "identity": {
+    "name": "E1",
+    "archetype": "The Anti-AI Designer",
+    "mission": "Create a 'Toxic Protocol' aesthetic that feels like a powerful, stealthy hacker tool. No generic SaaS vibes.",
+    "tone": "Stealthy, High-Tech, Bio-Hazard, Efficient"
+  },
+  "typography": {
+    "headings": {
+      "family": "JetBrains Mono, monospace",
+      "usage": "All headings (h1-h6), stats, and data displays.",
+      "weights": "Bold (700) or ExtraBold (800)",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "family": "Inter, sans-serif",
+      "usage": "Paragraphs, inputs, long text.",
+      "weights": "Regular (400), Medium (500)"
+    }
+  },
+  "colors": {
+    "palette_name": "Toxic Protocol",
+    "mode": "dark",
+    "base": {
+      "background": "#050505",
+      "foreground": "#e0e0e0",
+      "card": "#0a0a0a",
+      "card_foreground": "#ffffff",
+      "popover": "#0a0a0a",
+      "popover_foreground": "#ffffff",
+      "primary": "#00ff41",
+      "primary_foreground": "#000000",
+      "secondary": "#1a1a1a",
+      "secondary_foreground": "#00ff41",
+      "muted": "#121212",
+      "muted_foreground": "#666666",
+      "accent": "#1f2937",
+      "accent_foreground": "#00ff41",
+      "destructive": "#ff0033",
+      "destructive_foreground": "#ffffff",
+      "border": "#333333",
+      "input": "#1a1a1a",
+      "ring": "#00ff41"
+    },
+    "tailwind_config_extension": {
+      "colors": {
+        "toxic": {
+          "50": "#f0fdf4",
+          "100": "#dcfce7",
+          "200": "#bbf7d0",
+          "300": "#86efac",
+          "400": "#4ade80",
+          "500": "#22c55e",
+          "600": "#16a34a",
+          "700": "#15803d",
+          "800": "#166534",
+          "900": "#14532d",
+          "950": "#052e16"
+        },
+        "neon": "#00ff41",
+        "void": "#050505"
+      }
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": {
+      "style": "backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl",
+      "usage": "Sidebar, Floating Modals, Toasts"
+    },
+    "borders": {
+      "style": "border border-white/5 hover:border-green-500/50 transition-colors duration-300",
+      "usage": "Cards, Input Fields"
+    },
+    "glows": {
+      "style": "shadow-[0_0_20px_rgba(0,255,65,0.15)]",
+      "usage": "Primary Buttons, Active States, Success Indicators"
+    },
+    "bubbles": {
+      "description": "Animated glowing green orbs floating in the background.",
+      "implementation": "Use framer-motion to animate absolute positioned divs with blur-3xl and low opacity (10-20%).",
+      "colors": ["bg-green-500", "bg-emerald-500", "bg-lime-500"]
+    }
+  },
+  "layout_strategy": {
+    "dashboard": {
+      "type": "The Control Room Grid",
+      "grid": "grid-cols-1 md:grid-cols-12 gap-6",
+      "sidebar": "Fixed left, w-64, glassmorphism",
+      "main_content": "ml-64 p-8"
+    },
+    "marketing": {
+      "type": "The Tetris Grid",
+      "grid": "grid-cols-1 md:grid-cols-12 gap-8"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-neon text-black font-bold hover:shadow-[0_0_20px_rgba(0,255,65,0.4)] hover:scale-105 transition-all duration-200 rounded-none skew-x-[-10deg]",
+      "secondary": "bg-transparent border border-neon/50 text-neon hover:bg-neon/10 rounded-none skew-x-[-10deg]",
+      "ghost": "text-gray-400 hover:text-white hover:bg-white/5"
+    },
+    "cards": {
+      "base": "bg-card/50 backdrop-blur-md border border-white/5 rounded-xl overflow-hidden hover:border-neon/30 transition-colors",
+      "header": "border-b border-white/5 p-4",
+      "content": "p-6"
+    },
+    "inputs": {
+      "base": "bg-black/50 border-white/10 focus:border-neon focus:ring-1 focus:ring-neon/50 placeholder:text-gray-600 text-white rounded-md"
+    }
+  },
+  "image_assets": {
+    "backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1563206767-5b18f218e8de?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxoYWNrZXIlMjBtYXRyaXglMjBjb2RlJTIwbmV0d29yayUyMGNvbm5lY3Rpb258ZW58MHx8fHwxNzY1MjQxMTMzfDA&ixlib=rb-4.1.0&q=85",
+        "category": "hero_bg",
+        "description": "Dark matrix code background for login or hero sections (use with heavy overlay)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1714846201700-35b42d937158?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwzfHxoYWNrZXIlMjBtYXRyaXglMjBjb2RlJTIwbmV0d29yayUyMGNvbm5lY3Rpb258ZW58MHx8fHwxNzY1MjQxMTMzfDA&ixlib=rb-4.1.0&q=85",
+        "category": "dashboard_texture",
+        "description": "Subtle texture for dashboard panels"
+      }
+    ],
+    "icons": [
+      {
+        "url": "https://images.unsplash.com/photo-1633354998322-415842c7ee11?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHw0fHx0ZWxlZ3JhbSUyMG1lc3NhZ2luZyUyMGNoYXQlMjBidWJibGVzJTIwY29tbXVuaXR5fGVufDB8fHx8MTc2NTI0MTEzNHww&ixlib=rb-4.1.0&q=85",
+        "category": "telegram_3d",
+        "description": "3D Telegram icon for marketing headers"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "1. SETUP: Install 'lucide-react' for icons and 'framer-motion' for the bubble animations.",
+    "2. THEME: Update 'tailwind.config.js' and 'index.css' immediately to use the 'Toxic Protocol' color palette. Force DARK MODE by default.",
+    "3. BUBBLES: Create a 'BackgroundBubbles' component using framer-motion. It should have 5-10 large, blurred green circles moving slowly in the background. Z-index -1.",
+    "4. LAYOUT: Build the 'DashboardLayout' with a fixed glassmorphism sidebar and a top bar. The main content area should have the 'Control Room' grid.",
+    "5. COMPONENTS: Customize all Shadcn components (Buttons, Cards, Inputs) to match the 'Toxic Protocol' (Green/Black, sharp edges, glows).",
+    "6. FONTS: Import 'JetBrains Mono' and 'Inter' from Google Fonts in 'index.css'.",
+    "7. TESTING: Add 'data-testid' to all interactive elements (buttons, inputs, links)."
+  ],
+  "universal_guidelines": [
+    "Do not use gradients for the main background, use solid #050505.",
+    "Use 'text-neon' (green) for primary actions and active states.",
+    "Ensure all text has sufficient contrast against the dark background.",
+    "Use 'sonner' for notifications (styled with black bg and green border).",
+    "Never use default blue colors. Replace all blues with Green or Dark Grey."
+  ]
+}
