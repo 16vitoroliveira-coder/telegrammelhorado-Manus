@@ -587,24 +587,23 @@ const BroadcastGroups = () => {
                           {accountStatus && (
                             <div className="text-xs text-right mr-2">
                               {accountStatus.status === 'flood_wait' && (
-                                <span className="text-yellow-400">
-                                  Aguardando {accountStatus.flood_wait}s
+                                <span className="text-yellow-400 flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {accountStatus.flood_wait}s
                                 </span>
                               )}
-                              {accountStatus.status === 'sending' && accountStatus.current_group && (
-                                <span className="text-neon truncate max-w-[150px] block">
-                                  {accountStatus.current_group}
+                              {accountStatus.status === 'sending' && (
+                                <span className="text-neon font-bold">
+                                  {accountStatus.sent || 0} ✓
                                 </span>
                               )}
                               {accountStatus.status === 'completed' && (
-                                <span className="text-green-400">
-                                  ✓ {accountStatus.sent}/{accountStatus.total}
+                                <span className="text-green-400 font-bold">
+                                  {accountStatus.sent || 0} ✓
                                 </span>
                               )}
                               {accountStatus.status === 'error' && (
-                                <span className="text-red-400">
-                                  ✗ Erro
-                                </span>
+                                <span className="text-red-400">Erro</span>
                               )}
                             </div>
                           )}
