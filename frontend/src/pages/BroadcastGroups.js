@@ -270,46 +270,6 @@ const BroadcastGroups = () => {
     }
   };
 
-  const pollBroadcastStatus = useCallback((id) => {
-    if (pollingRef.current) return; // Já está fazendo polling
-    pollingRef.current = true;
-    
-    const poll = async () => {
-      try {
-        const response = await axios.get(`${API}/broadcast/${id}/status`);
-        setBroadcastStatus(response.data);
-        
-        if (response.data.status === 'completed' || response.data.status === 'cancelled' || response.data.status === 'error') {
-          setBroadcasting(false);
-          setBroadcastId(null);
-          pollingRef.current = false;
-          
-          if (response.data.status === 'completed') {
-            toast.success(`✅ Disparo completo! ${response.data.sent_count} mensagens em ${response.data.rounds_completed || 1} rodadas`);
-          } else if (response.data.status === 'cancelled') {
-            toast.info('🛑 Disparo cancelado');
-          }
-          return;
-        }
-        
-        // Continue polling
-        setTimeout(poll, 1500);
-      } catch (error) {
-        console.error('Error polling status:', error);
-        // Se erro 404, broadcast acabou ou não existe mais
-        if (error.response?.status === 404) {
-          setBroadcasting(false);
-          setBroadcastId(null);
-          pollingRef.current = false;
-          return;
-        }
-        setTimeout(poll, 3000);
-      }
-    };
-    
-    poll();
-  }, []);
-
   const cancelBroadcast = async () => {
     if (!broadcastId) {
       // Se não tem ID, tenta cancelar todos
