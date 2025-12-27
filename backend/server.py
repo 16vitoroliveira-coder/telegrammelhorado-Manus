@@ -939,6 +939,249 @@ async def join_marketplace_group(group_id: str, current_user: dict = Depends(get
                 pass
         release_lock(phone, lock)
 
+# Store for bulk join operations
+active_bulk_joins = {}
+
+class BulkJoinRequest(BaseModel):
+    group_ids: List[str]
+    account_id: str
+
+@api_router.post("/marketplace/join-bulk")
+async def start_bulk_join(request: BulkJoinRequest, current_user: dict = Depends(get_current_user)):
+    """Start joining multiple groups from the marketplace"""
+    # Check if user has access
+    purchase = await db.group_purchases.find_one({
+        "user_id": current_user['id'],
+        "status": "approved"
+    })
+    
+    if not purchase and not current_user.get('is_admin', False):
+        raise HTTPException(status_code=403, detail="Você precisa comprar acesso aos grupos primeiro!")
+    
+    # Get the specified account
+    account = await db.accounts.find_one({
+        "id": request.account_id,
+        "user_id": current_user['id'],
+        "is_active": True,
+        "session_string": {"$ne": None, "$exists": True}
+    }, {"_id": 0})
+    
+    if not account:
+        raise HTTPException(status_code=400, detail="Conta não encontrada ou inativa")
+    
+    # Get groups
+    groups = await db.public_groups.find({"id": {"$in": request.group_ids}}, {"_id": 0}).to_list(500)
+    if not groups:
+        raise HTTPException(status_code=400, detail="Nenhum grupo encontrado")
+    
+    # Create operation ID
+    operation_id = str(uuid.uuid4())
+    
+    # Initialize operation status
+    active_bulk_joins[operation_id] = {
+        "user_id": current_user['id'],
+        "account_id": request.account_id,
+        "phone": account['phone'],
+        "status": "running",
+        "total": len(groups),
+        "joined": 0,
+        "skipped": 0,  # Já estava no grupo
+        "errors": 0,
+        "current_group": None,
+        "flood_wait": None,
+        "results": [],
+        "started_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Start bulk join task in background
+    asyncio.create_task(run_bulk_join(operation_id, current_user['id'], account, groups))
+    
+    return {
+        "operation_id": operation_id,
+        "message": f"Iniciando entrada em {len(groups)} grupos...",
+        "total": len(groups)
+    }
+
+async def run_bulk_join(operation_id: str, user_id: str, account: dict, groups: List[dict]):
+    """Background task to join multiple groups"""
+    phone = account['phone']
+    
+    logging.info(f"[BULK JOIN {operation_id}][{phone}] Iniciando para {len(groups)} grupos")
+    
+    lock = await safe_acquire_lock(phone, timeout_seconds=180)
+    if not lock:
+        active_bulk_joins[operation_id]['status'] = 'error'
+        active_bulk_joins[operation_id]['error'] = "Sessão ocupada"
+        logging.error(f"[BULK JOIN {operation_id}][{phone}] Não conseguiu lock")
+        return
+    
+    client = None
+    try:
+        creds = random.choice(DEFAULT_API_CREDENTIALS)
+        client = await create_telegram_client(phone, creds['api_id'], creds['api_hash'])
+        
+        active_bulk_joins[operation_id]['status'] = 'joining'
+        
+        for idx, group in enumerate(groups):
+            # Check if cancelled
+            if active_bulk_joins.get(operation_id, {}).get('status') == 'cancelled':
+                logging.info(f"[BULK JOIN {operation_id}][{phone}] Cancelado")
+                break
+            
+            group_title = group.get('title', 'Desconhecido')[:40]
+            active_bulk_joins[operation_id]['current_group'] = f"[{idx+1}/{len(groups)}] {group_title}"
+            
+            result = {
+                "group_id": group['id'],
+                "title": group_title,
+                "status": None,
+                "message": None
+            }
+            
+            try:
+                # Try to join
+                if group.get('username'):
+                    entity = await asyncio.wait_for(
+                        client.get_entity(group['username']),
+                        timeout=15.0
+                    )
+                    await asyncio.wait_for(
+                        client(JoinChannelRequest(entity)),
+                        timeout=15.0
+                    )
+                elif group.get('invite_link'):
+                    invite_hash = group['invite_link'].split('/')[-1]
+                    if invite_hash.startswith('+'):
+                        invite_hash = invite_hash[1:]
+                    await asyncio.wait_for(
+                        client(ImportChatInviteRequest(invite_hash)),
+                        timeout=15.0
+                    )
+                else:
+                    result['status'] = 'error'
+                    result['message'] = 'Sem link disponível'
+                    active_bulk_joins[operation_id]['errors'] += 1
+                    active_bulk_joins[operation_id]['results'].append(result)
+                    continue
+                
+                # Success!
+                result['status'] = 'joined'
+                result['message'] = 'Entrou com sucesso!'
+                active_bulk_joins[operation_id]['joined'] += 1
+                logging.info(f"[BULK JOIN {operation_id}][{phone}] ✓ Entrou: {group_title}")
+                
+                # Delay between joins to avoid flood
+                await asyncio.sleep(random.uniform(2, 4))
+                
+            except FloodWaitError as e:
+                wait_seconds = e.seconds
+                logging.warning(f"[BULK JOIN {operation_id}][{phone}] FloodWait: {wait_seconds}s")
+                
+                active_bulk_joins[operation_id]['status'] = 'flood_wait'
+                active_bulk_joins[operation_id]['flood_wait'] = wait_seconds
+                
+                # Wait for flood to pass
+                await asyncio.sleep(wait_seconds)
+                
+                active_bulk_joins[operation_id]['flood_wait'] = None
+                active_bulk_joins[operation_id]['status'] = 'joining'
+                
+                # Retry after flood wait
+                try:
+                    if group.get('username'):
+                        entity = await client.get_entity(group['username'])
+                        await client(JoinChannelRequest(entity))
+                    elif group.get('invite_link'):
+                        invite_hash = group['invite_link'].split('/')[-1]
+                        if invite_hash.startswith('+'):
+                            invite_hash = invite_hash[1:]
+                        await client(ImportChatInviteRequest(invite_hash))
+                    
+                    result['status'] = 'joined'
+                    result['message'] = 'Entrou com sucesso (após espera)!'
+                    active_bulk_joins[operation_id]['joined'] += 1
+                    logging.info(f"[BULK JOIN {operation_id}][{phone}] ✓ Entrou após flood: {group_title}")
+                except Exception as retry_err:
+                    error_str = str(retry_err)[:50]
+                    result['status'] = 'error'
+                    result['message'] = error_str
+                    active_bulk_joins[operation_id]['errors'] += 1
+                    
+            except UserAlreadyParticipantError:
+                result['status'] = 'skipped'
+                result['message'] = 'Já está no grupo'
+                active_bulk_joins[operation_id]['skipped'] += 1
+                logging.info(f"[BULK JOIN {operation_id}][{phone}] ⊘ Já estava: {group_title}")
+                
+            except (ChannelPrivateError, InviteHashExpiredError, InviteHashInvalidError) as e:
+                result['status'] = 'error'
+                result['message'] = type(e).__name__
+                active_bulk_joins[operation_id]['errors'] += 1
+                logging.warning(f"[BULK JOIN {operation_id}][{phone}] ✗ Erro: {group_title} - {type(e).__name__}")
+                
+            except Exception as e:
+                error_str = str(e)[:50]
+                
+                # Check if already in group
+                if "already" in error_str.lower() or "participant" in error_str.lower():
+                    result['status'] = 'skipped'
+                    result['message'] = 'Já está no grupo'
+                    active_bulk_joins[operation_id]['skipped'] += 1
+                else:
+                    result['status'] = 'error'
+                    result['message'] = error_str
+                    active_bulk_joins[operation_id]['errors'] += 1
+            
+            active_bulk_joins[operation_id]['results'].append(result)
+        
+        # Completed
+        active_bulk_joins[operation_id]['status'] = 'completed'
+        active_bulk_joins[operation_id]['current_group'] = None
+        active_bulk_joins[operation_id]['finished_at'] = datetime.now(timezone.utc).isoformat()
+        
+        joined = active_bulk_joins[operation_id]['joined']
+        skipped = active_bulk_joins[operation_id]['skipped']
+        errors = active_bulk_joins[operation_id]['errors']
+        logging.info(f"[BULK JOIN {operation_id}][{phone}] 🏁 COMPLETO: {joined} entrou | {skipped} já estava | {errors} erros")
+        
+    except Exception as e:
+        error_msg = str(e)[:100]
+        logging.error(f"[BULK JOIN {operation_id}][{phone}] ❌ ERRO: {error_msg}")
+        active_bulk_joins[operation_id]['status'] = 'error'
+        active_bulk_joins[operation_id]['error'] = error_msg
+    finally:
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
+        release_lock(phone, lock)
+
+@api_router.get("/marketplace/join-bulk/{operation_id}/status")
+async def get_bulk_join_status(operation_id: str, current_user: dict = Depends(get_current_user)):
+    """Get status of bulk join operation"""
+    if operation_id not in active_bulk_joins:
+        raise HTTPException(status_code=404, detail="Operação não encontrada")
+    
+    operation = active_bulk_joins[operation_id]
+    if operation['user_id'] != current_user['id']:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    
+    return operation
+
+@api_router.post("/marketplace/join-bulk/{operation_id}/cancel")
+async def cancel_bulk_join(operation_id: str, current_user: dict = Depends(get_current_user)):
+    """Cancel bulk join operation"""
+    if operation_id not in active_bulk_joins:
+        raise HTTPException(status_code=404, detail="Operação não encontrada")
+    
+    operation = active_bulk_joins[operation_id]
+    if operation['user_id'] != current_user['id']:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    
+    active_bulk_joins[operation_id]['status'] = 'cancelled'
+    return {"message": "Operação cancelada"}
+
 # Admin endpoints for marketplace
 @api_router.get("/admin/purchases")
 async def get_all_purchases(current_user: dict = Depends(get_current_user)):
