@@ -436,7 +436,17 @@ const BroadcastGroups = () => {
           {/* Broadcast Progress */}
           {broadcastStatus && (
             <div className="bg-[#111111] border border-white/10 rounded-xl p-5">
-              <h2 className="text-lg font-mono font-bold text-white mb-4">Progresso do Broadcast</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-mono font-bold text-white">
+                  {broadcastStatus.mode === 'continuous' ? '🔄 Disparo Contínuo' : '📤 Disparo Único'}
+                </h2>
+                {broadcastStatus.rounds_completed > 0 && (
+                  <span className="text-neon font-mono text-sm flex items-center gap-1">
+                    <RotateCcw className="h-4 w-4" />
+                    {broadcastStatus.rounds_completed} rodadas
+                  </span>
+                )}
+              </div>
               
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
@@ -444,12 +454,12 @@ const BroadcastGroups = () => {
                   <span className={`font-medium ${
                     broadcastStatus.status === 'completed' ? 'text-green-400' :
                     broadcastStatus.status === 'running' ? 'text-neon' :
-                    broadcastStatus.status === 'cancelled' ? 'text-red-400' :
+                    broadcastStatus.status === 'cancelled' ? 'text-orange-400' :
                     broadcastStatus.status === 'error' ? 'text-red-400' : 'text-yellow-400'
                   }`}>
-                    {broadcastStatus.status === 'completed' ? '✅ Concluído' :
-                     broadcastStatus.status === 'running' ? '🚀 Em andamento' :
-                     broadcastStatus.status === 'cancelled' ? '❌ Cancelado' :
+                    {broadcastStatus.status === 'completed' ? '✅ Finalizado' :
+                     broadcastStatus.status === 'running' ? '🚀 Disparando...' :
+                     broadcastStatus.status === 'cancelled' ? '🛑 Cancelado' :
                      broadcastStatus.status === 'error' ? '⚠️ Erro' : '⏳ Iniciando...'}
                   </span>
                 </div>
@@ -460,8 +470,8 @@ const BroadcastGroups = () => {
                 </div>
                 
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Mensagens enviadas</span>
-                  <span className="text-neon font-mono font-bold">{broadcastStatus.sent_count || 0} / {broadcastStatus.total_groups || 0}</span>
+                  <span className="text-gray-400">Total enviado</span>
+                  <span className="text-neon font-mono font-bold text-lg">{broadcastStatus.sent_count || 0}</span>
                 </div>
                 
                 {broadcastStatus.error_count > 0 && (
@@ -471,22 +481,15 @@ const BroadcastGroups = () => {
                   </div>
                 )}
 
-                {/* Progress bar */}
-                <div className="w-full bg-background/50 rounded-full h-3 mt-2">
-                  <div 
-                    className="bg-gradient-to-r from-neon to-green-400 h-3 rounded-full transition-all duration-300"
-                    style={{ 
-                      width: `${broadcastStatus.total_groups ? 
-                        ((broadcastStatus.sent_count || 0) / broadcastStatus.total_groups) * 100 : 0}%` 
-                    }}
-                  />
-                </div>
-                
-                <p className="text-xs text-gray-500 text-center">
-                  {broadcastStatus.total_groups ? 
-                    `${Math.round(((broadcastStatus.sent_count || 0) / broadcastStatus.total_groups) * 100)}% completo` : 
-                    'Calculando...'}
-                </p>
+                {/* Live Progress Animation */}
+                {broadcastStatus.status === 'running' && (
+                  <div className="mt-3 p-3 bg-neon/5 border border-neon/20 rounded-lg">
+                    <div className="flex items-center justify-center space-x-2">
+                      <Radio className="h-5 w-5 text-neon animate-pulse" />
+                      <span className="text-neon font-medium animate-pulse">Disparando mensagens...</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Per-account status */}
