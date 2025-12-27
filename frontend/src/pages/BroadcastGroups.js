@@ -143,8 +143,6 @@ const BroadcastGroups = () => {
       }
     };
   }, [user, broadcasting, broadcastId, handleBroadcastUpdate]);
-    }
-  }, [pollBroadcastStatus]);
 
   const fetchData = async () => {
     try {
