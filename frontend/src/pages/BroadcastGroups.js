@@ -29,6 +29,7 @@ const BroadcastGroups = () => {
   const [expandedAccounts, setExpandedAccounts] = useState({});
   const [showTemplates, setShowTemplates] = useState(false);
   const [resettingLocks, setResettingLocks] = useState(false);
+  const [continuousMode, setContinuousMode] = useState(true); // Modo contínuo por padrão
   const wsRef = useRef(null);
 
   useEffect(() => {
