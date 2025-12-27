@@ -548,10 +548,27 @@ const BroadcastGroups = () => {
                               </span>
                             )}
                           </div>
-                          <span className="text-sm font-mono font-bold text-neon">
-                            {status.sent || 0} ✓
-                          </span>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-mono font-bold text-neon">
+                              {status.sent || 0} ✓
+                            </span>
+                            {status.blocked > 0 && (
+                              <span className="text-xs bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded">
+                                {status.blocked} 🚫
+                              </span>
+                            )}
+                          </div>
                         </div>
+                        
+                        {/* Active groups info */}
+                        {status.active_groups !== undefined && status.total && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-gray-500">
+                              Ativos: {status.active_groups}/{status.total}
+                            </span>
+                          </div>
+                        )}
+                        
                         {status.current_group && status.status === 'sending' && (
                           <p className="text-xs text-gray-400 mt-1 truncate">
                             ➜ {status.current_group}
@@ -561,6 +578,11 @@ const BroadcastGroups = () => {
                           <p className="text-xs text-yellow-400 mt-1 flex items-center gap-1">
                             <Clock className="h-3 w-3 animate-pulse" />
                             Aguardando {status.flood_wait}s (limite Telegram)
+                          </p>
+                        )}
+                        {status.status === 'all_blocked' && (
+                          <p className="text-xs text-orange-400 mt-1">
+                            ⚠️ Todos os grupos bloqueados para esta conta
                           </p>
                         )}
                         {status.last_error && status.status === 'error' && (
