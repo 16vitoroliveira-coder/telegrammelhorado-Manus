@@ -304,6 +304,8 @@ const BroadcastGroups = () => {
         return <Clock className="h-4 w-4 text-yellow-400 animate-pulse" />;
       case 'completed':
         return <CheckCircle className="h-4 w-4 text-green-400" />;
+      case 'all_blocked':
+        return <AlertTriangle className="h-4 w-4 text-orange-400" />;
       case 'error':
         return <XCircle className="h-4 w-4 text-red-400" />;
       default:
@@ -317,6 +319,7 @@ const BroadcastGroups = () => {
       case 'sending': return 'border-neon/50 bg-neon/10';
       case 'flood_wait': return 'border-yellow-400/50 bg-yellow-400/10';
       case 'completed': return 'border-green-400/50 bg-green-400/10';
+      case 'all_blocked': return 'border-orange-400/50 bg-orange-400/10';
       case 'error': return 'border-red-400/50 bg-red-400/10';
       default: return 'border-white/10 bg-white/5';
     }
