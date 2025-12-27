@@ -377,6 +377,7 @@ class BroadcastRequest(BaseModel):
     message: str
     group_ids: Optional[List[str]] = None  # If None, send to all groups
     account_ids: Optional[List[str]] = None  # If None, use all active accounts
+    continuous: bool = True  # Loop contínuo (padrão: ativado)
 
 class CopyMessageRequest(BaseModel):
     source_group_id: str
