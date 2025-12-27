@@ -91,7 +91,7 @@ const BroadcastGroups = () => {
     };
   }, [user, broadcasting, broadcastId, handleBroadcastUpdate]);
 
-  const checkActiveBroadcasts = async () => {
+  const checkActiveBroadcasts = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/broadcast/active/list`);
       if (response.data.count > 0) {
@@ -102,11 +102,14 @@ const BroadcastGroups = () => {
         setBroadcasting(true);
         setContinuousMode(activeBroadcast.mode === 'continuous');
         toast.info(`🔄 Disparo em andamento detectado! ${activeBroadcast.sent_count} mensagens enviadas`);
+        
+        // Iniciar polling para atualizar status
+        pollBroadcastStatus(activeBroadcast.broadcast_id);
       }
     } catch (error) {
       console.log('Nenhum broadcast ativo');
     }
-  };
+  }, [pollBroadcastStatus]);
 
   const fetchData = async () => {
     try {
