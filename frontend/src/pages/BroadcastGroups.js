@@ -57,8 +57,11 @@ const BroadcastGroups = () => {
 
   useEffect(() => {
     fetchData();
-    checkActiveBroadcasts();
   }, []);
+
+  useEffect(() => {
+    checkActiveBroadcasts();
+  }, [checkActiveBroadcasts]);
 
   useEffect(() => {
     if (user && broadcasting && broadcastId) {
@@ -78,9 +81,6 @@ const BroadcastGroups = () => {
       };
       
       wsRef.current = ws;
-      
-      // Start polling for status
-      pollBroadcastStatus(broadcastId);
     }
     
     return () => {
