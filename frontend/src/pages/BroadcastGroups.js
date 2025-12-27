@@ -32,46 +32,7 @@ const BroadcastGroups = () => {
   const [continuousMode, setContinuousMode] = useState(true); // Modo contínuo por padrão
   const wsRef = useRef(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    if (user && broadcasting) {
-      connectWebSocket();
-    }
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [user, broadcasting, connectWebSocket]);
-
-  const connectWebSocket = useCallback(() => {
-    if (!user) return;
-    
-    const ws = new WebSocket(`${WS_URL}/ws/broadcast/${user.id}`);
-    
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-    };
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleBroadcastUpdate(data);
-    };
-    
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      if (broadcasting) {
-        setTimeout(connectWebSocket, 2000);
-      }
-    };
-    
-    wsRef.current = ws;
-  }, [user, broadcasting]);
-
-  const handleBroadcastUpdate = (data) => {
+  const handleBroadcastUpdate = useCallback((data) => {
     setBroadcastStatus(prev => {
       const newStatus = { ...prev };
       
@@ -91,7 +52,39 @@ const BroadcastGroups = () => {
       
       return newStatus;
     });
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (user && broadcasting) {
+      const ws = new WebSocket(`${WS_URL}/ws/broadcast/${user.id}`);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        handleBroadcastUpdate(data);
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+      };
+      
+      wsRef.current = ws;
+    }
+    
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [user, broadcasting, handleBroadcastUpdate]);
 
   const fetchData = async () => {
     try {
