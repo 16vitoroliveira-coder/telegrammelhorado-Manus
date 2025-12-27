@@ -286,7 +286,7 @@ const BroadcastGroups = () => {
     }
   };
 
-  // Get unique groups count
+  // Get unique groups
   const uniqueGroups = [...new Map(groups.map(g => [g.telegram_id, g])).values()];
 
   const groupsByAccount = accounts.map(account => ({
