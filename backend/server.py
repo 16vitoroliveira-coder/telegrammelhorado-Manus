@@ -1821,6 +1821,41 @@ async def get_broadcast_status(broadcast_id: str, current_user: dict = Depends(g
     
     return broadcast
 
+@api_router.get("/broadcast/active/list")
+async def get_active_broadcasts(current_user: dict = Depends(get_current_user)):
+    """Get all active broadcasts for the current user"""
+    user_id = current_user['id']
+    
+    user_broadcasts = []
+    for broadcast_id, broadcast in active_broadcasts.items():
+        if broadcast['user_id'] == user_id and broadcast['status'] == 'running':
+            user_broadcasts.append({
+                "broadcast_id": broadcast_id,
+                **broadcast
+            })
+    
+    return {
+        "active_broadcasts": user_broadcasts,
+        "count": len(user_broadcasts)
+    }
+
+@api_router.post("/broadcast/cancel/all")
+async def cancel_all_broadcasts(current_user: dict = Depends(get_current_user)):
+    """Cancel all active broadcasts for the current user"""
+    user_id = current_user['id']
+    cancelled = 0
+    
+    for broadcast_id, broadcast in active_broadcasts.items():
+        if broadcast['user_id'] == user_id and broadcast['status'] == 'running':
+            active_broadcasts[broadcast_id]['status'] = 'cancelled'
+            logging.info(f"[DISPARO {broadcast_id}] 🛑 CANCELADO (cancel all)")
+            cancelled += 1
+    
+    return {
+        "message": f"{cancelled} disparo(s) cancelado(s)",
+        "cancelled_count": cancelled
+    }
+
 @api_router.post("/broadcast/{broadcast_id}/cancel")
 async def cancel_broadcast(broadcast_id: str, current_user: dict = Depends(get_current_user)):
     """Cancel an active broadcast"""
