@@ -542,7 +542,7 @@ const BroadcastGroups = () => {
         <div className="space-y-4">
           <div className="bg-[#111111] border border-white/10 rounded-xl p-5">
             <h2 className="text-lg font-mono font-bold text-white mb-4">
-              Contas & Grupos ({accounts.length} contas, {uniqueGroups.length} grupos únicos)
+              {accounts.length} Contas | {uniqueGroups.length} Grupos Únicos
             </h2>
 
             {accounts.length === 0 ? (
