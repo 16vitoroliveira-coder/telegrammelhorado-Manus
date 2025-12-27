@@ -252,8 +252,7 @@ const BroadcastGroups = () => {
     
     try {
       await axios.post(`${API}/broadcast/${broadcastId}/cancel`);
-      setBroadcasting(false);
-      toast.info('Broadcast cancelado');
+      toast.info('🛑 Solicitação de cancelamento enviada...');
     } catch (error) {
       toast.error('Erro ao cancelar');
     }
