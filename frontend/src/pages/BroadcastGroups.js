@@ -182,7 +182,7 @@ const BroadcastGroups = () => {
       return;
     }
 
-    // Reset locks before starting to ensure clean state
+    // Reset locks antes de iniciar
     try {
       await axios.post(`${API}/sessions/reset-locks`);
     } catch (e) {
@@ -192,28 +192,30 @@ const BroadcastGroups = () => {
     setBroadcasting(true);
     setBroadcastStatus({
       status: 'starting',
+      mode: continuousMode ? 'continuous' : 'single',
       accounts: {},
-      total_groups: selectAll ? groups.length : selectedGroups.length,
+      total_groups: selectAll ? uniqueGroups.length : selectedGroups.length,
       total_accounts: accounts.length,
       sent_count: 0,
-      error_count: 0
+      error_count: 0,
+      rounds_completed: 0
     });
 
     try {
       const response = await axios.post(`${API}/broadcast/groups`, {
         message: message,
-        group_ids: targetGroups
+        group_ids: targetGroups,
+        continuous: continuousMode
       });
       
       setBroadcastId(response.data.broadcast_id);
-      toast.success(`Broadcast iniciado: ${response.data.total_groups} grupos em ${response.data.total_accounts} contas`);
+      toast.success(`🚀 ${response.data.message}`);
       
-      // Start polling for status
       pollBroadcastStatus(response.data.broadcast_id);
       
     } catch (error) {
       setBroadcasting(false);
-      toast.error(error.response?.data?.detail || 'Erro ao iniciar broadcast');
+      toast.error(error.response?.data?.detail || 'Erro ao iniciar disparo');
     }
   };
 
