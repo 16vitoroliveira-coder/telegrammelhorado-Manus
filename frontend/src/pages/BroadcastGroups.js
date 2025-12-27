@@ -230,7 +230,9 @@ const BroadcastGroups = () => {
         if (response.data.status === 'completed' || response.data.status === 'cancelled' || response.data.status === 'error') {
           setBroadcasting(false);
           if (response.data.status === 'completed') {
-            toast.success(`✅ Broadcast completo! ${response.data.sent_count} mensagens enviadas`);
+            toast.success(`✅ Disparo completo! ${response.data.sent_count} mensagens em ${response.data.rounds_completed || 1} rodadas`);
+          } else if (response.data.status === 'cancelled') {
+            toast.info('🛑 Disparo cancelado');
           }
           return;
         }
