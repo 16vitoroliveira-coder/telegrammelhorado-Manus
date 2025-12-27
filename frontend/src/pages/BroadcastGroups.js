@@ -108,7 +108,7 @@ const BroadcastGroups = () => {
       // Initialize expanded state
       const expanded = {};
       accountsRes.data.forEach(acc => {
-        expanded[acc.id] = true;
+        expanded[acc.id] = false; // Collapsed by default
       });
       setExpandedAccounts(expanded);
       
