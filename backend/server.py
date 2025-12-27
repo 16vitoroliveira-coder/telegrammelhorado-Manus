@@ -1471,7 +1471,7 @@ async def delete_template(template_id: str, current_user: dict = Depends(get_cur
 
 @api_router.post("/broadcast/groups")
 async def broadcast_to_groups(request: BroadcastRequest, current_user: dict = Depends(get_current_user)):
-    """Start broadcasting message to selected groups - VERSÃO ROBUSTA"""
+    """Start CONTINUOUS broadcasting - disparo contínuo em loop até cancelar"""
     user_id = current_user['id']
     
     # Check plan limits
@@ -1498,6 +1498,15 @@ async def broadcast_to_groups(request: BroadcastRequest, current_user: dict = De
     if not groups:
         raise HTTPException(status_code=400, detail="Nenhum grupo encontrado. Atualize a lista de grupos primeiro.")
     
+    # Create unique groups list
+    unique_groups = {}
+    for group in groups:
+        tid = group['telegram_id']
+        if tid not in unique_groups:
+            unique_groups[tid] = group
+    
+    groups_list = list(unique_groups.values())
+    
     # Update usage
     await increment_usage(user_id, "broadcast_groups", 1)
     
@@ -1508,75 +1517,54 @@ async def broadcast_to_groups(request: BroadcastRequest, current_user: dict = De
     active_broadcasts[broadcast_id] = {
         "user_id": user_id,
         "status": "running",
+        "mode": "continuous" if request.continuous else "single",
         "accounts": {},
-        "total_groups": len(groups),
+        "total_groups": len(groups_list),
         "total_accounts": len(accounts),
         "sent_count": 0,
         "error_count": 0,
+        "rounds_completed": 0,
         "started_at": datetime.now(timezone.utc).isoformat()
     }
     
-    # Start broadcast task in background
-    asyncio.create_task(run_broadcast_robust(broadcast_id, user_id, accounts, groups, request.message))
+    # Start continuous broadcast task
+    asyncio.create_task(run_continuous_broadcast(
+        broadcast_id, user_id, accounts, groups_list, request.message, request.continuous
+    ))
     
     return {
         "broadcast_id": broadcast_id,
-        "message": "Broadcast iniciado",
+        "message": f"🚀 Disparo {'contínuo' if request.continuous else 'único'} iniciado!",
         "total_accounts": len(accounts),
-        "total_groups": len(groups)
+        "total_groups": len(groups_list),
+        "mode": "continuous" if request.continuous else "single"
     }
 
-async def run_broadcast_robust(broadcast_id: str, user_id: str, accounts: List[dict], groups: List[dict], message: str):
-    """Background task to run the broadcast - VERSÃO ROBUSTA com distribuição inteligente"""
+async def run_continuous_broadcast(broadcast_id: str, user_id: str, accounts: List[dict], 
+                                    groups: List[dict], message: str, continuous: bool = True):
+    """
+    DISPARO CONTÍNUO - Loop infinito até cancelar
+    Cada conta mantém conexão aberta e dispara continuamente
+    """
     try:
-        logging.info(f"[BROADCAST {broadcast_id}] Iniciando com {len(accounts)} contas e {len(groups)} grupos")
+        logging.info(f"[DISPARO {broadcast_id}] 🚀 INICIANDO DISPARO CONTÍNUO")
+        logging.info(f"[DISPARO {broadcast_id}] {len(accounts)} contas | {len(groups)} grupos | Modo: {'CONTÍNUO' if continuous else 'ÚNICO'}")
         
-        # ESTRATÉGIA: Distribuir grupos entre TODAS as contas disponíveis
-        # Não depende mais de qual conta extraiu o grupo
-        
-        # Criar lista única de grupos por telegram_id (evitar duplicatas)
-        unique_groups = {}
-        for group in groups:
-            tid = group['telegram_id']
-            if tid not in unique_groups:
-                unique_groups[tid] = group
-        
-        groups_list = list(unique_groups.values())
-        num_accounts = len(accounts)
-        num_groups = len(groups_list)
-        
-        logging.info(f"[BROADCAST {broadcast_id}] {num_groups} grupos únicos para {num_accounts} contas")
-        
-        # Distribuir grupos entre contas de forma equilibrada
-        # Cada conta recebe grupos em round-robin
-        groups_per_account = {acc['phone']: [] for acc in accounts}
-        
-        for i, group in enumerate(groups_list):
-            account_idx = i % num_accounts
-            phone = accounts[account_idx]['phone']
-            groups_per_account[phone].append(group)
-        
-        # Log distribuição
-        for phone, grps in groups_per_account.items():
-            logging.info(f"[BROADCAST {broadcast_id}] {phone}: {len(grps)} grupos atribuídos")
-        
-        # Criar tasks para cada conta processar seus grupos em paralelo
+        # Cada conta vai trabalhar independentemente em paralelo
+        # Mantendo conexão aberta e disparando continuamente
         tasks = []
         for account in accounts:
-            phone = account['phone']
-            account_groups = groups_per_account.get(phone, [])
-            if account_groups:
-                tasks.append(broadcast_for_account_robust(broadcast_id, user_id, account, account_groups, message))
-            else:
-                logging.warning(f"[BROADCAST {broadcast_id}] {phone}: Nenhum grupo atribuído")
+            tasks.append(account_continuous_worker(
+                broadcast_id, user_id, account, groups.copy(), message, continuous
+            ))
         
-        if tasks:
-            # Executar todas as contas em paralelo
-            await asyncio.gather(*tasks, return_exceptions=True)
+        # Executa todos os workers em paralelo
+        await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Mark broadcast as completed
+        # Se chegou aqui, foi cancelado ou terminou
         if broadcast_id in active_broadcasts:
-            active_broadcasts[broadcast_id]['status'] = 'completed'
+            if active_broadcasts[broadcast_id]['status'] != 'cancelled':
+                active_broadcasts[broadcast_id]['status'] = 'completed'
             active_broadcasts[broadcast_id]['finished_at'] = datetime.now(timezone.utc).isoformat()
             
             await send_broadcast_update(user_id, {
@@ -1585,19 +1573,23 @@ async def run_broadcast_robust(broadcast_id: str, user_id: str, accounts: List[d
                 "data": active_broadcasts[broadcast_id]
             })
             
-            logging.info(f"[BROADCAST {broadcast_id}] COMPLETO: {active_broadcasts[broadcast_id]['sent_count']} enviadas, {active_broadcasts[broadcast_id]['error_count']} erros")
+            logging.info(f"[DISPARO {broadcast_id}] ✅ FINALIZADO: {active_broadcasts[broadcast_id]['sent_count']} enviadas | {active_broadcasts[broadcast_id]['rounds_completed']} rodadas")
             
     except Exception as e:
-        logging.error(f"[BROADCAST {broadcast_id}] ERRO GERAL: {e}")
+        logging.error(f"[DISPARO {broadcast_id}] ❌ ERRO GERAL: {e}")
         if broadcast_id in active_broadcasts:
             active_broadcasts[broadcast_id]['status'] = 'error'
             active_broadcasts[broadcast_id]['error'] = str(e)
 
-async def broadcast_for_account_robust(broadcast_id: str, user_id: str, account: dict, groups: List[dict], message: str):
-    """Broadcast messages for a single account - VERSÃO ROBUSTA"""
+async def account_continuous_worker(broadcast_id: str, user_id: str, account: dict, 
+                                     groups: List[dict], message: str, continuous: bool):
+    """
+    Worker contínuo para uma conta específica
+    Mantém conexão aberta e dispara em loop infinito
+    """
     phone = account['phone']
     
-    logging.info(f"[BROADCAST {broadcast_id}][{phone}] Iniciando para {len(groups)} grupos")
+    logging.info(f"[DISPARO {broadcast_id}][{phone}] 🔄 Worker iniciando...")
     
     # Initialize account status
     if broadcast_id in active_broadcasts:
@@ -1608,8 +1600,10 @@ async def broadcast_for_account_robust(broadcast_id: str, user_id: str, account:
             "errors": 0,
             "skipped": 0,
             "total": len(groups),
+            "round": 0,
             "flood_wait": None,
-            "error_details": []
+            "flood_wait_until": None,
+            "last_error": None
         }
     
     await send_broadcast_update(user_id, {
@@ -1619,181 +1613,170 @@ async def broadcast_for_account_robust(broadcast_id: str, user_id: str, account:
         "data": active_broadcasts[broadcast_id]['accounts'][phone]
     })
     
-    # Tenta adquirir lock com timeout maior
-    lock = await safe_acquire_lock(phone, timeout_seconds=120)
+    # Adquirir lock
+    lock = await safe_acquire_lock(phone, timeout_seconds=180)
     if not lock:
-        logging.error(f"[BROADCAST {broadcast_id}][{phone}] Não conseguiu adquirir lock")
+        logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ Não conseguiu lock")
         if broadcast_id in active_broadcasts:
             active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'error'
-            active_broadcasts[broadcast_id]['accounts'][phone]['error'] = "Sessão ocupada - tente novamente"
-            await send_broadcast_update(user_id, {
-                "type": "account_error",
-                "broadcast_id": broadcast_id,
-                "phone": phone,
-                "error": "Sessão ocupada - tente novamente"
-            })
+            active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = "Sessão ocupada"
         return
     
     client = None
     try:
         creds = random.choice(DEFAULT_API_CREDENTIALS)
         
-        # Criar cliente com retry
+        # Conectar com retry
         for attempt in range(3):
             try:
                 client = await create_telegram_client(phone, creds['api_id'], creds['api_hash'])
                 break
-            except Exception as conn_err:
-                logging.warning(f"[BROADCAST {broadcast_id}][{phone}] Tentativa {attempt+1} de conexão falhou: {conn_err}")
+            except Exception as e:
+                logging.warning(f"[DISPARO {broadcast_id}][{phone}] Tentativa {attempt+1} falhou: {e}")
                 if attempt == 2:
-                    raise conn_err
+                    raise
                 await asyncio.sleep(2)
         
         if not client:
-            raise Exception("Não foi possível criar cliente Telegram")
+            raise Exception("Falha ao conectar")
         
+        logging.info(f"[DISPARO {broadcast_id}][{phone}] ✅ Conectado! Iniciando disparos...")
         active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'sending'
-        logging.info(f"[BROADCAST {broadcast_id}][{phone}] Conectado! Iniciando envio...")
         
-        # Delay base entre mensagens (evita flood)
-        base_delay = 1.5  # segundos
+        round_num = 0
         
-        for idx, group in enumerate(groups):
+        # LOOP INFINITO até cancelar
+        while True:
+            # Verificar se foi cancelado
             if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
-                logging.info(f"[BROADCAST {broadcast_id}][{phone}] Cancelado pelo usuário")
+                logging.info(f"[DISPARO {broadcast_id}][{phone}] 🛑 Cancelado pelo usuário")
                 break
             
-            group_title = group.get('title', 'Desconhecido')
-            group_tid = group.get('telegram_id')
+            round_num += 1
+            active_broadcasts[broadcast_id]['accounts'][phone]['round'] = round_num
             
-            try:
-                # Update current group
-                active_broadcasts[broadcast_id]['accounts'][phone]['current_group'] = group_title
-                active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'sending'
+            # Embaralhar grupos para cada rodada
+            shuffled_groups = groups.copy()
+            random.shuffle(shuffled_groups)
+            
+            logging.info(f"[DISPARO {broadcast_id}][{phone}] 🔄 Rodada {round_num} - {len(shuffled_groups)} grupos")
+            
+            # Disparar para cada grupo
+            for idx, group in enumerate(shuffled_groups):
+                # Verificar cancelamento a cada grupo
+                if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
+                    break
                 
-                await send_broadcast_update(user_id, {
-                    "type": "account_status",
-                    "broadcast_id": broadcast_id,
-                    "phone": phone,
-                    "data": active_broadcasts[broadcast_id]['accounts'][phone]
-                })
+                group_title = group.get('title', 'Desconhecido')[:40]
+                group_tid = group.get('telegram_id')
                 
-                # Obter entidade e enviar mensagem
                 try:
+                    # Atualizar status
+                    active_broadcasts[broadcast_id]['accounts'][phone]['current_group'] = f"[{idx+1}/{len(shuffled_groups)}] {group_title}"
+                    active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'sending'
+                    
+                    # Enviar mensagem
                     entity = await asyncio.wait_for(
                         client.get_entity(group_tid),
-                        timeout=15.0
+                        timeout=10.0
                     )
-                except asyncio.TimeoutError:
-                    raise Exception(f"Timeout ao obter grupo {group_title}")
-                
-                await asyncio.wait_for(
-                    client.send_message(entity, message),
-                    timeout=15.0
-                )
-                
-                # Update counters
-                active_broadcasts[broadcast_id]['accounts'][phone]['sent'] += 1
-                active_broadcasts[broadcast_id]['sent_count'] += 1
-                
-                logging.info(f"[BROADCAST {broadcast_id}][{phone}] ✓ Enviado para: {group_title}")
-                
-                await send_broadcast_update(user_id, {
-                    "type": "message_sent",
-                    "broadcast_id": broadcast_id,
-                    "phone": phone,
-                    "group": group_title,
-                    "data": active_broadcasts[broadcast_id]['accounts'][phone]
-                })
-                
-                # Delay adaptativo entre mensagens
-                delay = base_delay + random.uniform(0.5, 1.5)
-                await asyncio.sleep(delay)
-                
-            except FloodWaitError as e:
-                # Handle flood wait
-                wait_seconds = min(e.seconds, 300)  # Max 5 min wait
-                logging.warning(f"[BROADCAST {broadcast_id}][{phone}] FloodWait: {wait_seconds}s")
-                
-                active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'flood_wait'
-                active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait'] = wait_seconds
-                
-                await send_broadcast_update(user_id, {
-                    "type": "flood_wait",
-                    "broadcast_id": broadcast_id,
-                    "phone": phone,
-                    "wait_seconds": wait_seconds,
-                    "data": active_broadcasts[broadcast_id]['accounts'][phone]
-                })
-                
-                # Wait for flood to pass
-                await asyncio.sleep(wait_seconds)
-                active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait'] = None
-                
-                # Retry sending to this group
-                try:
-                    entity = await client.get_entity(group_tid)
-                    await client.send_message(entity, message)
+                    
+                    await asyncio.wait_for(
+                        client.send_message(entity, message),
+                        timeout=10.0
+                    )
+                    
+                    # Sucesso!
                     active_broadcasts[broadcast_id]['accounts'][phone]['sent'] += 1
                     active_broadcasts[broadcast_id]['sent_count'] += 1
-                    logging.info(f"[BROADCAST {broadcast_id}][{phone}] ✓ Retry OK: {group_title}")
-                except Exception as retry_error:
+                    
+                    # Delay mínimo entre mensagens
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
+                    
+                except FloodWaitError as e:
+                    wait_seconds = e.seconds
+                    logging.warning(f"[DISPARO {broadcast_id}][{phone}] ⏳ FloodWait: {wait_seconds}s")
+                    
+                    active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'flood_wait'
+                    active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait'] = wait_seconds
+                    active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait_until'] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=wait_seconds)
+                    ).isoformat()
+                    
+                    await send_broadcast_update(user_id, {
+                        "type": "flood_wait",
+                        "broadcast_id": broadcast_id,
+                        "phone": phone,
+                        "wait_seconds": wait_seconds,
+                        "data": active_broadcasts[broadcast_id]['accounts'][phone]
+                    })
+                    
+                    # Aguardar o tempo exato do flood
+                    await asyncio.sleep(wait_seconds)
+                    
+                    active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait'] = None
+                    active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait_until'] = None
+                    active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'sending'
+                    
+                    # Tentar enviar novamente após flood
+                    try:
+                        entity = await client.get_entity(group_tid)
+                        await client.send_message(entity, message)
+                        active_broadcasts[broadcast_id]['accounts'][phone]['sent'] += 1
+                        active_broadcasts[broadcast_id]['sent_count'] += 1
+                    except Exception as retry_err:
+                        active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
+                        active_broadcasts[broadcast_id]['error_count'] += 1
+                    
+                except (ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError, 
+                        UserKickedError, ChatAdminRequiredError) as e:
+                    # Sem permissão - skip silenciosamente
+                    active_broadcasts[broadcast_id]['accounts'][phone]['skipped'] += 1
+                    
+                except asyncio.TimeoutError:
                     active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
                     active_broadcasts[broadcast_id]['error_count'] += 1
-                    logging.error(f"[BROADCAST {broadcast_id}][{phone}] Retry falhou: {retry_error}")
                     
-            except (ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError, UserKickedError) as e:
-                # Erros de permissão - skip grupo
-                active_broadcasts[broadcast_id]['accounts'][phone]['skipped'] += 1
-                error_msg = f"Sem permissão: {type(e).__name__}"
-                active_broadcasts[broadcast_id]['accounts'][phone]['error_details'].append({
-                    "group": group_title,
-                    "error": error_msg
-                })
-                logging.warning(f"[BROADCAST {broadcast_id}][{phone}] ⊘ Skip {group_title}: {error_msg}")
-                
-            except asyncio.TimeoutError:
-                active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
-                active_broadcasts[broadcast_id]['error_count'] += 1
-                logging.error(f"[BROADCAST {broadcast_id}][{phone}] ✗ Timeout: {group_title}")
-                
-                await send_broadcast_update(user_id, {
-                    "type": "error",
-                    "broadcast_id": broadcast_id,
-                    "phone": phone,
-                    "group": group_title,
-                    "error": "Timeout ao enviar",
-                    "data": active_broadcasts[broadcast_id]['accounts'][phone]
-                })
-                
-            except Exception as e:
-                active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
-                active_broadcasts[broadcast_id]['error_count'] += 1
-                error_str = str(e)[:100]
-                
-                logging.error(f"[BROADCAST {broadcast_id}][{phone}] ✗ Erro {group_title}: {error_str}")
-                
-                await send_broadcast_update(user_id, {
-                    "type": "error",
-                    "broadcast_id": broadcast_id,
-                    "phone": phone,
-                    "group": group_title,
-                    "error": error_str,
-                    "data": active_broadcasts[broadcast_id]['accounts'][phone]
-                })
-                
-                # Pequeno delay após erro
-                await asyncio.sleep(1)
+                except Exception as e:
+                    error_str = str(e)[:50]
+                    active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
+                    active_broadcasts[broadcast_id]['error_count'] += 1
+                    active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = error_str
+                    
+                    # Se erro crítico de autenticação, parar
+                    if "not authorized" in error_str.lower() or "auth" in error_str.lower():
+                        logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ Erro de autenticação: {error_str}")
+                        break
+            
+            # Fim da rodada
+            active_broadcasts[broadcast_id]['rounds_completed'] += 1
+            
+            sent = active_broadcasts[broadcast_id]['accounts'][phone]['sent']
+            logging.info(f"[DISPARO {broadcast_id}][{phone}] ✅ Rodada {round_num} completa! Total enviado: {sent}")
+            
+            await send_broadcast_update(user_id, {
+                "type": "round_complete",
+                "broadcast_id": broadcast_id,
+                "phone": phone,
+                "round": round_num,
+                "data": active_broadcasts[broadcast_id]['accounts'][phone]
+            })
+            
+            # Se não é modo contínuo, parar após primeira rodada
+            if not continuous:
+                logging.info(f"[DISPARO {broadcast_id}][{phone}] Modo único - finalizando")
+                break
+            
+            # Pequena pausa entre rodadas
+            await asyncio.sleep(random.uniform(1, 3))
         
-        # Mark account as completed
+        # Worker finalizado
         active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'completed'
         active_broadcasts[broadcast_id]['accounts'][phone]['current_group'] = None
         
-        sent = active_broadcasts[broadcast_id]['accounts'][phone]['sent']
-        errors = active_broadcasts[broadcast_id]['accounts'][phone]['errors']
-        skipped = active_broadcasts[broadcast_id]['accounts'][phone]['skipped']
-        
-        logging.info(f"[BROADCAST {broadcast_id}][{phone}] COMPLETO: {sent} enviadas, {errors} erros, {skipped} puladas")
+        total_sent = active_broadcasts[broadcast_id]['accounts'][phone]['sent']
+        total_rounds = active_broadcasts[broadcast_id]['accounts'][phone]['round']
+        logging.info(f"[DISPARO {broadcast_id}][{phone}] 🏁 FINALIZADO: {total_sent} enviados em {total_rounds} rodadas")
         
         await send_broadcast_update(user_id, {
             "type": "account_complete",
@@ -1801,19 +1784,14 @@ async def broadcast_for_account_robust(broadcast_id: str, user_id: str, account:
             "phone": phone,
             "data": active_broadcasts[broadcast_id]['accounts'][phone]
         })
-            
-    except Exception as e:
-        error_msg = str(e)
-        if "database is locked" in error_msg.lower():
-            error_msg = "Sessão ocupada - tente novamente em alguns minutos"
-        elif "not authorized" in error_msg.lower():
-            error_msg = "Conta não autorizada - faça login novamente"
         
-        logging.error(f"[BROADCAST {broadcast_id}][{phone}] ERRO CRÍTICO: {error_msg}")
+    except Exception as e:
+        error_msg = str(e)[:100]
+        logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ ERRO CRÍTICO: {error_msg}")
         
         if broadcast_id in active_broadcasts:
             active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'error'
-            active_broadcasts[broadcast_id]['accounts'][phone]['error'] = error_msg
+            active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = error_msg
             
             await send_broadcast_update(user_id, {
                 "type": "account_error",
@@ -1821,8 +1799,9 @@ async def broadcast_for_account_robust(broadcast_id: str, user_id: str, account:
                 "phone": phone,
                 "error": error_msg
             })
+    
     finally:
-        # Sempre desconecta o cliente e libera o lock
+        # Sempre desconectar e liberar lock
         if client:
             try:
                 await client.disconnect()
@@ -1853,8 +1832,9 @@ async def cancel_broadcast(broadcast_id: str, current_user: dict = Depends(get_c
         raise HTTPException(status_code=403, detail="Acesso negado")
     
     active_broadcasts[broadcast_id]['status'] = 'cancelled'
+    logging.info(f"[DISPARO {broadcast_id}] 🛑 CANCELADO pelo usuário")
     
-    return {"message": "Broadcast cancelado"}
+    return {"message": "Disparo cancelado - aguarde as contas finalizarem"}
 
 # ============== Extract Members Routes ==============
 
