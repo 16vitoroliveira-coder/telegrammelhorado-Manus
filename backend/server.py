@@ -1586,10 +1586,14 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
     """
     Worker contínuo para uma conta específica
     Mantém conexão aberta e dispara em loop infinito
+    INTELIGENTE: Separa grupos bloqueados (sem permissão) dos que podem ser tentados novamente
     """
     phone = account['phone']
     
     logging.info(f"[DISPARO {broadcast_id}][{phone}] 🔄 Worker iniciando...")
+    
+    # Lista de grupos bloqueados para esta conta (erros permanentes)
+    blocked_groups = set()  # telegram_ids de grupos que não podem receber mensagens
     
     # Initialize account status
     if broadcast_id in active_broadcasts:
@@ -1599,11 +1603,14 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             "sent": 0,
             "errors": 0,
             "skipped": 0,
+            "blocked": 0,  # Contador de grupos bloqueados
             "total": len(groups),
+            "active_groups": len(groups),  # Grupos ativos (não bloqueados)
             "round": 0,
             "flood_wait": None,
             "flood_wait_until": None,
-            "last_error": None
+            "last_error": None,
+            "blocked_groups": []  # Lista de grupos bloqueados com motivo
         }
     
     await send_broadcast_update(user_id, {
@@ -1655,11 +1662,23 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             round_num += 1
             active_broadcasts[broadcast_id]['accounts'][phone]['round'] = round_num
             
-            # Embaralhar grupos para cada rodada
-            shuffled_groups = groups.copy()
+            # Filtrar grupos ativos (remover bloqueados)
+            active_groups = [g for g in groups if g.get('telegram_id') not in blocked_groups]
+            
+            # Se não tem mais grupos ativos, parar
+            if not active_groups:
+                logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os grupos bloqueados - finalizando")
+                active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'all_blocked'
+                break
+            
+            # Atualizar contador de grupos ativos
+            active_broadcasts[broadcast_id]['accounts'][phone]['active_groups'] = len(active_groups)
+            
+            # Embaralhar grupos ativos para cada rodada
+            shuffled_groups = active_groups.copy()
             random.shuffle(shuffled_groups)
             
-            logging.info(f"[DISPARO {broadcast_id}][{phone}] 🔄 Rodada {round_num} - {len(shuffled_groups)} grupos")
+            logging.info(f"[DISPARO {broadcast_id}][{phone}] 🔄 Rodada {round_num} - {len(shuffled_groups)} grupos ativos ({len(blocked_groups)} bloqueados)")
             
             # Disparar para cada grupo
             for idx, group in enumerate(shuffled_groups):
@@ -1669,6 +1688,10 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                 
                 group_title = group.get('title', 'Desconhecido')[:40]
                 group_tid = group.get('telegram_id')
+                
+                # Pular se grupo foi bloqueado durante esta rodada
+                if group_tid in blocked_groups:
+                    continue
                 
                 try:
                     # Atualizar status
@@ -1694,8 +1717,9 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                     await asyncio.sleep(random.uniform(0.5, 1.5))
                     
                 except FloodWaitError as e:
+                    # FloodWait é temporário - aguardar e continuar
                     wait_seconds = e.seconds
-                    logging.warning(f"[DISPARO {broadcast_id}][{phone}] ⏳ FloodWait: {wait_seconds}s")
+                    logging.warning(f"[DISPARO {broadcast_id}][{phone}] ⏳ FloodWait: {wait_seconds}s (temporário)")
                     
                     active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'flood_wait'
                     active_broadcasts[broadcast_id]['accounts'][phone]['flood_wait'] = wait_seconds
@@ -1730,21 +1754,53 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                     
                 except (ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError, 
                         UserKickedError, ChatAdminRequiredError) as e:
-                    # Sem permissão - skip silenciosamente
-                    active_broadcasts[broadcast_id]['accounts'][phone]['skipped'] += 1
+                    # ERRO PERMANENTE - Bloquear grupo
+                    error_type = type(e).__name__
+                    blocked_groups.add(group_tid)
+                    active_broadcasts[broadcast_id]['accounts'][phone]['blocked'] += 1
+                    active_broadcasts[broadcast_id]['accounts'][phone]['blocked_groups'].append({
+                        "title": group_title,
+                        "telegram_id": group_tid,
+                        "reason": error_type
+                    })
+                    logging.info(f"[DISPARO {broadcast_id}][{phone}] 🚫 BLOQUEADO: {group_title} ({error_type})")
                     
                 except asyncio.TimeoutError:
+                    # Timeout é temporário - não bloquear
                     active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
                     active_broadcasts[broadcast_id]['error_count'] += 1
                     
                 except Exception as e:
-                    error_str = str(e)[:50]
-                    active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
-                    active_broadcasts[broadcast_id]['error_count'] += 1
-                    active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = error_str
+                    error_str = str(e)[:100]
                     
-                    # Se erro crítico de autenticação, parar
-                    if "not authorized" in error_str.lower() or "auth" in error_str.lower():
+                    # Verificar se é erro permanente de permissão
+                    permanent_errors = [
+                        "chat_write_forbidden", "channel_private", "user_banned", 
+                        "user_kicked", "chat_admin_required", "user_not_participant",
+                        "peer_flood", "you can't write", "not a member", "was kicked",
+                        "was banned", "not have permission", "forbidden", "private"
+                    ]
+                    
+                    is_permanent = any(err in error_str.lower() for err in permanent_errors)
+                    
+                    if is_permanent:
+                        # ERRO PERMANENTE - Bloquear grupo
+                        blocked_groups.add(group_tid)
+                        active_broadcasts[broadcast_id]['accounts'][phone]['blocked'] += 1
+                        active_broadcasts[broadcast_id]['accounts'][phone]['blocked_groups'].append({
+                            "title": group_title,
+                            "telegram_id": group_tid,
+                            "reason": error_str[:50]
+                        })
+                        logging.info(f"[DISPARO {broadcast_id}][{phone}] 🚫 BLOQUEADO: {group_title} ({error_str[:50]})")
+                    else:
+                        # Erro temporário - apenas contabilizar
+                        active_broadcasts[broadcast_id]['accounts'][phone]['errors'] += 1
+                        active_broadcasts[broadcast_id]['error_count'] += 1
+                        active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = error_str[:50]
+                    
+                    # Se erro crítico de autenticação, parar worker
+                    if "not authorized" in error_str.lower() or "auth key" in error_str.lower():
                         logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ Erro de autenticação: {error_str}")
                         break
             
