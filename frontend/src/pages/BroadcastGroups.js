@@ -55,13 +55,66 @@ const BroadcastGroups = () => {
     });
   }, []);
 
-  useEffect(() => {
-    fetchData();
+  const pollBroadcastStatus = useCallback((id) => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    
+    const poll = async () => {
+      try {
+        const response = await axios.get(`${API}/broadcast/${id}/status`);
+        setBroadcastStatus(response.data);
+        
+        if (response.data.status === 'completed' || response.data.status === 'cancelled' || response.data.status === 'error') {
+          setBroadcasting(false);
+          setBroadcastId(null);
+          pollingRef.current = false;
+          
+          if (response.data.status === 'completed') {
+            toast.success(`✅ Disparo completo! ${response.data.sent_count} mensagens em ${response.data.rounds_completed || 1} rodadas`);
+          } else if (response.data.status === 'cancelled') {
+            toast.info('🛑 Disparo cancelado');
+          }
+          return;
+        }
+        
+        setTimeout(poll, 1500);
+      } catch (error) {
+        console.error('Error polling status:', error);
+        if (error.response?.status === 404) {
+          setBroadcasting(false);
+          setBroadcastId(null);
+          pollingRef.current = false;
+          return;
+        }
+        setTimeout(poll, 3000);
+      }
+    };
+    
+    poll();
   }, []);
 
+  // Verifica broadcasts ativos ao carregar
   useEffect(() => {
+    const checkActiveBroadcasts = async () => {
+      try {
+        const response = await axios.get(`${API}/broadcast/active/list`);
+        if (response.data.count > 0) {
+          const activeBroadcast = response.data.active_broadcasts[0];
+          setBroadcastId(activeBroadcast.broadcast_id);
+          setBroadcastStatus(activeBroadcast);
+          setBroadcasting(true);
+          setContinuousMode(activeBroadcast.mode === 'continuous');
+          toast.info(`🔄 Disparo em andamento detectado! ${activeBroadcast.sent_count} mensagens enviadas`);
+          pollBroadcastStatus(activeBroadcast.broadcast_id);
+        }
+      } catch (error) {
+        console.log('Nenhum broadcast ativo');
+      }
+    };
+    
+    fetchData();
     checkActiveBroadcasts();
-  }, [checkActiveBroadcasts]);
+  }, [pollBroadcastStatus]);
 
   useEffect(() => {
     if (user && broadcasting && broadcastId) {
@@ -90,24 +143,6 @@ const BroadcastGroups = () => {
       }
     };
   }, [user, broadcasting, broadcastId, handleBroadcastUpdate]);
-
-  const checkActiveBroadcasts = useCallback(async () => {
-    try {
-      const response = await axios.get(`${API}/broadcast/active/list`);
-      if (response.data.count > 0) {
-        // Há broadcast ativo, restaurar estado
-        const activeBroadcast = response.data.active_broadcasts[0];
-        setBroadcastId(activeBroadcast.broadcast_id);
-        setBroadcastStatus(activeBroadcast);
-        setBroadcasting(true);
-        setContinuousMode(activeBroadcast.mode === 'continuous');
-        toast.info(`🔄 Disparo em andamento detectado! ${activeBroadcast.sent_count} mensagens enviadas`);
-        
-        // Iniciar polling para atualizar status
-        pollBroadcastStatus(activeBroadcast.broadcast_id);
-      }
-    } catch (error) {
-      console.log('Nenhum broadcast ativo');
     }
   }, [pollBroadcastStatus]);
 
