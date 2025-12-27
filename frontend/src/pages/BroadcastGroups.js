@@ -551,7 +551,7 @@ const BroadcastGroups = () => {
                 <p className="text-gray-400">Nenhuma conta conectada</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+              <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                 {groupsByAccount.map(account => {
                   const accountStatus = broadcastStatus?.accounts?.[account.phone];
                   const isExpanded = expandedAccounts[account.id];
