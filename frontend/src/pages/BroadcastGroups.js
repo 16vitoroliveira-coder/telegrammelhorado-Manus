@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   Send, RefreshCw, Users, CheckCircle, XCircle, Clock, 
   AlertTriangle, Loader2, Radio, Square, CheckSquare,
-  FileText, ChevronDown, ChevronUp
+  FileText, ChevronDown, ChevronUp, Unlock, Zap
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -27,6 +27,7 @@ const BroadcastGroups = () => {
   const [broadcastStatus, setBroadcastStatus] = useState(null);
   const [expandedAccounts, setExpandedAccounts] = useState({});
   const [showTemplates, setShowTemplates] = useState(false);
+  const [resettingLocks, setResettingLocks] = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -116,6 +117,18 @@ const BroadcastGroups = () => {
     }
   };
 
+  const resetAllLocks = async () => {
+    setResettingLocks(true);
+    try {
+      const response = await axios.post(`${API}/sessions/reset-all-locks`);
+      toast.success(response.data.message);
+    } catch (error) {
+      toast.error('Erro ao resetar locks');
+    } finally {
+      setResettingLocks(false);
+    }
+  };
+
   const refreshAccountGroups = async (accountId) => {
     setRefreshing(prev => ({ ...prev, [accountId]: true }));
     try {
@@ -167,11 +180,19 @@ const BroadcastGroups = () => {
       return;
     }
 
+    // Reset locks before starting to ensure clean state
+    try {
+      await axios.post(`${API}/sessions/reset-locks`);
+    } catch (e) {
+      console.log('Lock reset warning:', e);
+    }
+
     setBroadcasting(true);
     setBroadcastStatus({
       status: 'starting',
       accounts: {},
       total_groups: selectAll ? groups.length : selectedGroups.length,
+      total_accounts: accounts.length,
       sent_count: 0,
       error_count: 0
     });
@@ -183,7 +204,7 @@ const BroadcastGroups = () => {
       });
       
       setBroadcastId(response.data.broadcast_id);
-      toast.success(`Broadcast iniciado para ${response.data.total_groups} grupos`);
+      toast.success(`Broadcast iniciado: ${response.data.total_groups} grupos em ${response.data.total_accounts} contas`);
       
       // Start polling for status
       pollBroadcastStatus(response.data.broadcast_id);
@@ -202,8 +223,11 @@ const BroadcastGroups = () => {
         const response = await axios.get(`${API}/broadcast/${id}/status`);
         setBroadcastStatus(response.data);
         
-        if (response.data.status === 'completed' || response.data.status === 'cancelled') {
+        if (response.data.status === 'completed' || response.data.status === 'cancelled' || response.data.status === 'error') {
           setBroadcasting(false);
+          if (response.data.status === 'completed') {
+            toast.success(`✅ Broadcast completo! ${response.data.sent_count} mensagens enviadas`);
+          }
           return;
         }
         
@@ -257,6 +281,9 @@ const BroadcastGroups = () => {
     }
   };
 
+  // Get unique groups count
+  const uniqueGroups = [...new Map(groups.map(g => [g.telegram_id, g])).values()];
+
   const groupsByAccount = accounts.map(account => ({
     ...account,
     groups: groups.filter(g => g.account_id === account.id)
@@ -272,11 +299,27 @@ const BroadcastGroups = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl md:text-4xl font-mono font-bold text-neon tracking-tight">
-          BROADCAST GRUPOS
-        </h1>
-        <p className="text-gray-400 mt-1">Envie mensagens para todos os seus grupos</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-mono font-bold text-neon tracking-tight">
+            BROADCAST GRUPOS
+          </h1>
+          <p className="text-gray-400 mt-1">Envie mensagens para todos os seus grupos</p>
+        </div>
+        
+        <button
+          onClick={resetAllLocks}
+          disabled={resettingLocks || broadcasting}
+          className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-medium py-2 px-4 rounded-lg flex items-center space-x-2 transition-all disabled:opacity-50 border border-yellow-500/30"
+          title="Resetar locks de sessão (usar se houver problemas)"
+        >
+          {resettingLocks ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Unlock className="h-4 w-4" />
+          )}
+          <span>Reset Locks</span>
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
@@ -329,7 +372,7 @@ const BroadcastGroups = () => {
                   ) : (
                     <Square className="h-4 w-4" />
                   )}
-                  <span>Todos os grupos ({groups.length})</span>
+                  <span>Todos os grupos ({uniqueGroups.length})</span>
                 </button>
               </div>
 
@@ -347,7 +390,7 @@ const BroadcastGroups = () => {
                   disabled={!message.trim() || groups.length === 0}
                   className="bg-neon hover:bg-neon/90 text-background font-bold py-2 px-4 rounded-lg flex items-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Send className="h-5 w-5" />
+                  <Zap className="h-5 w-5" />
                   <span>Enviar</span>
                 </button>
               )}
@@ -357,7 +400,7 @@ const BroadcastGroups = () => {
           {/* Broadcast Progress */}
           {broadcastStatus && (
             <div className="bg-[#111111] border border-white/10 rounded-xl p-5">
-              <h2 className="text-lg font-mono font-bold text-white mb-4">Progresso</h2>
+              <h2 className="text-lg font-mono font-bold text-white mb-4">Progresso do Broadcast</h2>
               
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
@@ -365,17 +408,24 @@ const BroadcastGroups = () => {
                   <span className={`font-medium ${
                     broadcastStatus.status === 'completed' ? 'text-green-400' :
                     broadcastStatus.status === 'running' ? 'text-neon' :
-                    broadcastStatus.status === 'cancelled' ? 'text-red-400' : 'text-gray-400'
+                    broadcastStatus.status === 'cancelled' ? 'text-red-400' :
+                    broadcastStatus.status === 'error' ? 'text-red-400' : 'text-yellow-400'
                   }`}>
-                    {broadcastStatus.status === 'completed' ? 'Concluído' :
-                     broadcastStatus.status === 'running' ? 'Em andamento' :
-                     broadcastStatus.status === 'cancelled' ? 'Cancelado' : 'Iniciando...'}
+                    {broadcastStatus.status === 'completed' ? '✅ Concluído' :
+                     broadcastStatus.status === 'running' ? '🚀 Em andamento' :
+                     broadcastStatus.status === 'cancelled' ? '❌ Cancelado' :
+                     broadcastStatus.status === 'error' ? '⚠️ Erro' : '⏳ Iniciando...'}
                   </span>
                 </div>
                 
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Enviados</span>
-                  <span className="text-neon font-mono">{broadcastStatus.sent_count || 0} / {broadcastStatus.total_groups || 0}</span>
+                  <span className="text-gray-400">Contas ativas</span>
+                  <span className="text-blue-400 font-mono">{broadcastStatus.total_accounts || accounts.length}</span>
+                </div>
+                
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Mensagens enviadas</span>
+                  <span className="text-neon font-mono font-bold">{broadcastStatus.sent_count || 0} / {broadcastStatus.total_groups || 0}</span>
                 </div>
                 
                 {broadcastStatus.error_count > 0 && (
@@ -386,16 +436,59 @@ const BroadcastGroups = () => {
                 )}
 
                 {/* Progress bar */}
-                <div className="w-full bg-background/50 rounded-full h-2 mt-2">
+                <div className="w-full bg-background/50 rounded-full h-3 mt-2">
                   <div 
-                    className="bg-neon h-2 rounded-full transition-all duration-300"
+                    className="bg-gradient-to-r from-neon to-green-400 h-3 rounded-full transition-all duration-300"
                     style={{ 
                       width: `${broadcastStatus.total_groups ? 
                         ((broadcastStatus.sent_count || 0) / broadcastStatus.total_groups) * 100 : 0}%` 
                     }}
                   />
                 </div>
+                
+                <p className="text-xs text-gray-500 text-center">
+                  {broadcastStatus.total_groups ? 
+                    `${Math.round(((broadcastStatus.sent_count || 0) / broadcastStatus.total_groups) * 100)}% completo` : 
+                    'Calculando...'}
+                </p>
               </div>
+
+              {/* Per-account status */}
+              {broadcastStatus.accounts && Object.keys(broadcastStatus.accounts).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <h3 className="text-sm font-medium text-gray-400 mb-2">Status por conta:</h3>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {Object.entries(broadcastStatus.accounts).map(([phone, status]) => (
+                      <div key={phone} className={`p-2 rounded-lg border ${getStatusColor(status.status)}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            {getStatusIcon(status.status)}
+                            <span className="text-sm font-mono text-white">{phone}</span>
+                          </div>
+                          <span className="text-xs font-mono text-neon">
+                            {status.sent || 0}/{status.total || 0}
+                          </span>
+                        </div>
+                        {status.current_group && status.status === 'sending' && (
+                          <p className="text-xs text-gray-400 mt-1 truncate">
+                            ➜ {status.current_group}
+                          </p>
+                        )}
+                        {status.flood_wait && (
+                          <p className="text-xs text-yellow-400 mt-1">
+                            ⏳ Aguardando {status.flood_wait}s (Flood Wait)
+                          </p>
+                        )}
+                        {status.error && (
+                          <p className="text-xs text-red-400 mt-1 truncate">
+                            ⚠️ {status.error}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -404,7 +497,7 @@ const BroadcastGroups = () => {
         <div className="space-y-4">
           <div className="bg-[#111111] border border-white/10 rounded-xl p-5">
             <h2 className="text-lg font-mono font-bold text-white mb-4">
-              Contas & Grupos ({accounts.length} contas, {groups.length} grupos)
+              Contas & Grupos ({accounts.length} contas, {uniqueGroups.length} grupos únicos)
             </h2>
 
             {accounts.length === 0 ? (
@@ -460,7 +553,12 @@ const BroadcastGroups = () => {
                               )}
                               {accountStatus.status === 'completed' && (
                                 <span className="text-green-400">
-                                  {accountStatus.sent}/{accountStatus.total}
+                                  ✓ {accountStatus.sent}/{accountStatus.total}
+                                </span>
+                              )}
+                              {accountStatus.status === 'error' && (
+                                <span className="text-red-400">
+                                  ✗ Erro
                                 </span>
                               )}
                             </div>
