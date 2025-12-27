@@ -84,6 +84,15 @@ async def force_release_stale_lock(phone: str):
             return True
     return False
 
+def force_release_all_locks():
+    """Força liberação de TODOS os locks - usar com cuidado"""
+    global session_locks, lock_timestamps
+    count = len(session_locks)
+    session_locks = {}
+    lock_timestamps = {}
+    logging.warning(f"Forçada liberação de {count} locks")
+    return count
+
 async def safe_acquire_lock(phone: str, timeout_seconds: int = 30):
     """
     Adquire lock de forma segura com timeout e detecção de locks presos.
@@ -96,9 +105,18 @@ async def safe_acquire_lock(phone: str, timeout_seconds: int = 30):
     
     # Se lock não está ocupado, adquire imediatamente
     if not lock.locked():
-        await lock.acquire()
-        lock_timestamps[phone] = datetime.now(timezone.utc)
-        return lock
+        try:
+            await lock.acquire()
+            lock_timestamps[phone] = datetime.now(timezone.utc)
+            return lock
+        except Exception as e:
+            logging.error(f"Erro ao adquirir lock para {phone}: {e}")
+            # Cria novo lock e tenta novamente
+            session_locks[phone] = asyncio.Lock()
+            lock = session_locks[phone]
+            await lock.acquire()
+            lock_timestamps[phone] = datetime.now(timezone.utc)
+            return lock
     
     # Lock está ocupado, tenta com timeout
     try:
@@ -107,25 +125,46 @@ async def safe_acquire_lock(phone: str, timeout_seconds: int = 30):
             lock_timestamps[phone] = datetime.now(timezone.utc)
             return lock
     except asyncio.TimeoutError:
+        logging.warning(f"Timeout ao adquirir lock para {phone} após {timeout_seconds}s")
         # Verifica se o lock está preso há muito tempo
         was_stale = await force_release_stale_lock(phone)
         if was_stale:
             # Tenta novamente após forçar liberação
             lock = get_session_lock(phone)
-            await lock.acquire()
-            lock_timestamps[phone] = datetime.now(timezone.utc)
-            return lock
-        return None
+            try:
+                await lock.acquire()
+                lock_timestamps[phone] = datetime.now(timezone.utc)
+                return lock
+            except:
+                pass
+        # Última tentativa: criar novo lock
+        logging.warning(f"Criando novo lock para {phone} após timeout")
+        session_locks[phone] = asyncio.Lock()
+        lock = session_locks[phone]
+        await lock.acquire()
+        lock_timestamps[phone] = datetime.now(timezone.utc)
+        return lock
+    except Exception as e:
+        logging.error(f"Erro inesperado ao adquirir lock para {phone}: {e}")
+        # Cria novo lock como fallback
+        session_locks[phone] = asyncio.Lock()
+        lock = session_locks[phone]
+        await lock.acquire()
+        lock_timestamps[phone] = datetime.now(timezone.utc)
+        return lock
     
     return None
 
 def release_lock(phone: str, lock: asyncio.Lock):
     """Libera lock de forma segura"""
     try:
-        if lock.locked():
+        if lock and lock.locked():
             lock.release()
         if phone in lock_timestamps:
             del lock_timestamps[phone]
+    except RuntimeError as e:
+        # Lock já foi liberado
+        logging.debug(f"Lock para {phone} já estava liberado: {e}")
     except Exception as e:
         logging.error(f"Erro ao liberar lock para {phone}: {e}")
 
