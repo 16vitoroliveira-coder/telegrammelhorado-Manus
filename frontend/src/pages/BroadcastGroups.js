@@ -56,10 +56,11 @@ const BroadcastGroups = () => {
 
   useEffect(() => {
     fetchData();
+    checkActiveBroadcasts();
   }, []);
 
   useEffect(() => {
-    if (user && broadcasting) {
+    if (user && broadcasting && broadcastId) {
       const ws = new WebSocket(`${WS_URL}/ws/broadcast/${user.id}`);
       
       ws.onopen = () => {
@@ -76,6 +77,9 @@ const BroadcastGroups = () => {
       };
       
       wsRef.current = ws;
+      
+      // Start polling for status
+      pollBroadcastStatus(broadcastId);
     }
     
     return () => {
@@ -84,7 +88,24 @@ const BroadcastGroups = () => {
         wsRef.current = null;
       }
     };
-  }, [user, broadcasting, handleBroadcastUpdate]);
+  }, [user, broadcasting, broadcastId, handleBroadcastUpdate]);
+
+  const checkActiveBroadcasts = async () => {
+    try {
+      const response = await axios.get(`${API}/broadcast/active/list`);
+      if (response.data.count > 0) {
+        // Há broadcast ativo, restaurar estado
+        const activeBroadcast = response.data.active_broadcasts[0];
+        setBroadcastId(activeBroadcast.broadcast_id);
+        setBroadcastStatus(activeBroadcast);
+        setBroadcasting(true);
+        setContinuousMode(activeBroadcast.mode === 'continuous');
+        toast.info(`🔄 Disparo em andamento detectado! ${activeBroadcast.sent_count} mensagens enviadas`);
+      }
+    } catch (error) {
+      console.log('Nenhum broadcast ativo');
+    }
+  };
 
   const fetchData = async () => {
     try {
