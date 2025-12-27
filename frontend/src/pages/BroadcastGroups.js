@@ -306,17 +306,20 @@ const BroadcastGroups = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl md:text-4xl font-mono font-bold text-neon tracking-tight">
-            BROADCAST GRUPOS
+          <h1 className="text-3xl md:text-4xl font-mono font-bold text-neon tracking-tight flex items-center gap-3">
+            <Zap className="h-8 w-8" />
+            DISPARO GRUPOS
           </h1>
-          <p className="text-gray-400 mt-1">Envie mensagens para todos os seus grupos</p>
+          <p className="text-gray-400 mt-1">
+            {continuousMode ? '🔄 Modo contínuo - dispara até você parar' : '1️⃣ Modo único - uma rodada'}
+          </p>
         </div>
         
         <button
           onClick={resetAllLocks}
           disabled={resettingLocks || broadcasting}
           className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-medium py-2 px-4 rounded-lg flex items-center space-x-2 transition-all disabled:opacity-50 border border-yellow-500/30"
-          title="Resetar locks de sessão (usar se houver problemas)"
+          title="Resetar locks de sessão"
         >
           {resettingLocks ? (
             <Loader2 className="h-4 w-4 animate-spin" />
