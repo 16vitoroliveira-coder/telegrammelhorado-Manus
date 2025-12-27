@@ -1808,13 +1808,17 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             active_broadcasts[broadcast_id]['rounds_completed'] += 1
             
             sent = active_broadcasts[broadcast_id]['accounts'][phone]['sent']
-            logging.info(f"[DISPARO {broadcast_id}][{phone}] ✅ Rodada {round_num} completa! Total enviado: {sent}")
+            blocked_count = len(blocked_groups)
+            active_count = len(active_groups)
+            logging.info(f"[DISPARO {broadcast_id}][{phone}] ✅ Rodada {round_num} completa! Enviados: {sent} | Ativos: {active_count} | Bloqueados: {blocked_count}")
             
             await send_broadcast_update(user_id, {
                 "type": "round_complete",
                 "broadcast_id": broadcast_id,
                 "phone": phone,
                 "round": round_num,
+                "active_groups": active_count,
+                "blocked_groups": blocked_count,
                 "data": active_broadcasts[broadcast_id]['accounts'][phone]
             })
             
@@ -1827,12 +1831,14 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             await asyncio.sleep(random.uniform(1, 3))
         
         # Worker finalizado
-        active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'completed'
+        if active_broadcasts[broadcast_id]['accounts'][phone]['status'] != 'all_blocked':
+            active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'completed'
         active_broadcasts[broadcast_id]['accounts'][phone]['current_group'] = None
         
         total_sent = active_broadcasts[broadcast_id]['accounts'][phone]['sent']
         total_rounds = active_broadcasts[broadcast_id]['accounts'][phone]['round']
-        logging.info(f"[DISPARO {broadcast_id}][{phone}] 🏁 FINALIZADO: {total_sent} enviados em {total_rounds} rodadas")
+        total_blocked = active_broadcasts[broadcast_id]['accounts'][phone]['blocked']
+        logging.info(f"[DISPARO {broadcast_id}][{phone}] 🏁 FINALIZADO: {total_sent} enviados | {total_rounds} rodadas | {total_blocked} bloqueados")
         
         await send_broadcast_update(user_id, {
             "type": "account_complete",
