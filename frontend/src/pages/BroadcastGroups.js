@@ -363,13 +363,39 @@ const BroadcastGroups = () => {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              rows={6}
+              rows={5}
               disabled={broadcasting}
               className="w-full bg-background/50 border border-white/10 rounded-lg py-3 px-4 text-white placeholder-gray-500 focus:outline-none focus:border-neon/50 focus:ring-1 focus:ring-neon/50 transition-all resize-none disabled:opacity-50"
               placeholder="Digite sua mensagem aqui..."
             />
 
-            <div className="flex items-center justify-between mt-4">
+            {/* Mode Toggle */}
+            <div className="flex items-center justify-between mt-4 p-3 bg-background/50 rounded-lg border border-white/10">
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-400 text-sm">Modo:</span>
+                <button
+                  onClick={() => setContinuousMode(!continuousMode)}
+                  disabled={broadcasting}
+                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    continuousMode 
+                      ? 'bg-neon/20 text-neon border border-neon/50' 
+                      : 'bg-gray-700/50 text-gray-400 border border-gray-600'
+                  }`}
+                >
+                  {continuousMode ? (
+                    <>
+                      <Infinity className="h-4 w-4" />
+                      <span>Contínuo</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      <span>Único</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              
               <div className="flex items-center space-x-2 text-sm text-gray-400">
                 <button
                   onClick={handleSelectAll}
@@ -380,26 +406,28 @@ const BroadcastGroups = () => {
                   ) : (
                     <Square className="h-4 w-4" />
                   )}
-                  <span>Todos os grupos ({uniqueGroups.length})</span>
+                  <span>{uniqueGroups.length} grupos</span>
                 </button>
               </div>
+            </div>
 
+            <div className="flex items-center justify-end mt-4 gap-3">
               {broadcasting ? (
                 <button
                   onClick={cancelBroadcast}
-                  className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center space-x-2 transition-all"
+                  className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg flex items-center space-x-2 transition-all"
                 >
-                  <XCircle className="h-5 w-5" />
-                  <span>Cancelar</span>
+                  <StopCircle className="h-5 w-5" />
+                  <span>PARAR DISPARO</span>
                 </button>
               ) : (
                 <button
                   onClick={startBroadcast}
                   disabled={!message.trim() || groups.length === 0}
-                  className="bg-neon hover:bg-neon/90 text-background font-bold py-2 px-4 rounded-lg flex items-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-gradient-to-r from-neon to-green-500 hover:from-neon/90 hover:to-green-500/90 text-background font-bold py-3 px-6 rounded-lg flex items-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-neon/25"
                 >
                   <Zap className="h-5 w-5" />
-                  <span>Enviar</span>
+                  <span>INICIAR DISPARO</span>
                 </button>
               )}
             </div>
