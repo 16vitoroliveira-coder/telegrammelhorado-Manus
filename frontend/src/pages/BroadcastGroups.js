@@ -77,14 +77,15 @@ const BroadcastGroups = () => {
       
       if (data.type === 'account_status' || data.type === 'message_sent' || 
           data.type === 'flood_wait' || data.type === 'error' || 
-          data.type === 'account_complete' || data.type === 'account_error') {
+          data.type === 'account_complete' || data.type === 'account_error' ||
+          data.type === 'round_complete') {
         if (!newStatus.accounts) newStatus.accounts = {};
         newStatus.accounts[data.phone] = data.data;
       }
       
       if (data.type === 'broadcast_complete') {
         setBroadcasting(false);
-        toast.success('Broadcast concluído!');
+        toast.success(`🎉 Disparo finalizado! ${data.data?.sent_count || 0} mensagens enviadas`);
         return data.data;
       }
       
