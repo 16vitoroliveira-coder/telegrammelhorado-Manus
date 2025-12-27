@@ -63,7 +63,6 @@ const BroadcastGroups = () => {
     
     ws.onclose = () => {
       console.log('WebSocket disconnected');
-      // Reconnect if still broadcasting
       if (broadcasting) {
         setTimeout(connectWebSocket, 2000);
       }
