@@ -45,7 +45,7 @@ const BroadcastGroups = () => {
         wsRef.current.close();
       }
     };
-  }, [user, broadcasting]);
+  }, [user, broadcasting, connectWebSocket]);
 
   const connectWebSocket = useCallback(() => {
     if (!user) return;
