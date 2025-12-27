@@ -648,11 +648,6 @@ const BroadcastGroups = () => {
                                 className="rounded border-gray-600 text-neon focus:ring-neon/50 bg-background/50"
                               />
                               <span className="text-sm truncate">{group.title}</span>
-                              {group.is_channel && (
-                                <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">
-                                  Canal
-                                </span>
-                              )}
                             </label>
                           ))}
                         </div>
