@@ -265,7 +265,7 @@ const BroadcastGroups = () => {
       case 'sending':
         return <Radio className="h-4 w-4 text-neon animate-pulse" />;
       case 'flood_wait':
-        return <Clock className="h-4 w-4 text-yellow-400" />;
+        return <Clock className="h-4 w-4 text-yellow-400 animate-pulse" />;
       case 'completed':
         return <CheckCircle className="h-4 w-4 text-green-400" />;
       case 'error':
