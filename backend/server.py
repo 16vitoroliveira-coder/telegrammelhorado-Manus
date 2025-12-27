@@ -16,7 +16,7 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.messages import GetDialogsRequest, AddChatUserRequest, ExportChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.functions.channels import InviteToChannelRequest, JoinChannelRequest
 from telethon.tl.types import InputPeerEmpty, UserStatusOnline, UserStatusOffline, UserStatusRecently, Channel, Chat, User as TelegramUser
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, FloodWaitError, UserPrivacyRestrictedError, UserNotMutualContactError, ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError, ChatAdminRequiredError, UserKickedError
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, FloodWaitError, UserPrivacyRestrictedError, UserNotMutualContactError, ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError, ChatAdminRequiredError, UserKickedError, UserAlreadyParticipantError, InviteHashExpiredError, InviteHashInvalidError
 import random
 import json
 import jwt
