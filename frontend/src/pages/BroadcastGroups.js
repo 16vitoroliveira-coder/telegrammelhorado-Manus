@@ -495,17 +495,22 @@ const BroadcastGroups = () => {
               {/* Per-account status */}
               {broadcastStatus.accounts && Object.keys(broadcastStatus.accounts).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-white/10">
-                  <h3 className="text-sm font-medium text-gray-400 mb-2">Status por conta:</h3>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                  <h3 className="text-sm font-medium text-gray-400 mb-3">Status por conta:</h3>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
                     {Object.entries(broadcastStatus.accounts).map(([phone, status]) => (
-                      <div key={phone} className={`p-2 rounded-lg border ${getStatusColor(status.status)}`}>
+                      <div key={phone} className={`p-3 rounded-lg border ${getStatusColor(status.status)}`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             {getStatusIcon(status.status)}
                             <span className="text-sm font-mono text-white">{phone}</span>
+                            {status.round > 0 && (
+                              <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">
+                                R{status.round}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-xs font-mono text-neon">
-                            {status.sent || 0}/{status.total || 0}
+                          <span className="text-sm font-mono font-bold text-neon">
+                            {status.sent || 0} ✓
                           </span>
                         </div>
                         {status.current_group && status.status === 'sending' && (
@@ -514,13 +519,14 @@ const BroadcastGroups = () => {
                           </p>
                         )}
                         {status.flood_wait && (
-                          <p className="text-xs text-yellow-400 mt-1">
-                            ⏳ Aguardando {status.flood_wait}s (Flood Wait)
+                          <p className="text-xs text-yellow-400 mt-1 flex items-center gap-1">
+                            <Clock className="h-3 w-3 animate-pulse" />
+                            Aguardando {status.flood_wait}s (limite Telegram)
                           </p>
                         )}
-                        {status.error && (
+                        {status.last_error && status.status === 'error' && (
                           <p className="text-xs text-red-400 mt-1 truncate">
-                            ⚠️ {status.error}
+                            ⚠️ {status.last_error}
                           </p>
                         )}
                       </div>
