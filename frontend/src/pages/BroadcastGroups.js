@@ -234,16 +234,20 @@ const BroadcastGroups = () => {
     }
   };
 
-  const pollBroadcastStatus = async (id) => {
+  const pollBroadcastStatus = useCallback((id) => {
+    if (pollingRef.current) return; // Já está fazendo polling
+    pollingRef.current = true;
+    
     const poll = async () => {
-      if (!broadcasting) return;
-      
       try {
         const response = await axios.get(`${API}/broadcast/${id}/status`);
         setBroadcastStatus(response.data);
         
         if (response.data.status === 'completed' || response.data.status === 'cancelled' || response.data.status === 'error') {
           setBroadcasting(false);
+          setBroadcastId(null);
+          pollingRef.current = false;
+          
           if (response.data.status === 'completed') {
             toast.success(`✅ Disparo completo! ${response.data.sent_count} mensagens em ${response.data.rounds_completed || 1} rodadas`);
           } else if (response.data.status === 'cancelled') {
@@ -252,18 +256,39 @@ const BroadcastGroups = () => {
           return;
         }
         
-        setTimeout(poll, 1000);
+        // Continue polling
+        setTimeout(poll, 1500);
       } catch (error) {
         console.error('Error polling status:', error);
-        setTimeout(poll, 2000);
+        // Se erro 404, broadcast acabou ou não existe mais
+        if (error.response?.status === 404) {
+          setBroadcasting(false);
+          setBroadcastId(null);
+          pollingRef.current = false;
+          return;
+        }
+        setTimeout(poll, 3000);
       }
     };
     
     poll();
-  };
+  }, []);
 
   const cancelBroadcast = async () => {
-    if (!broadcastId) return;
+    if (!broadcastId) {
+      // Se não tem ID, tenta cancelar todos
+      try {
+        const response = await axios.post(`${API}/broadcast/cancel/all`);
+        toast.info(`🛑 ${response.data.message}`);
+        setBroadcasting(false);
+        setBroadcastId(null);
+        setBroadcastStatus(null);
+        pollingRef.current = false;
+      } catch (error) {
+        toast.error('Erro ao cancelar');
+      }
+      return;
+    }
     
     try {
       await axios.post(`${API}/broadcast/${broadcastId}/cancel`);
