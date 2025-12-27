@@ -748,11 +748,34 @@ async def reset_session_locks(current_user: dict = Depends(get_current_user)):
                 if phone in lock_timestamps:
                     del lock_timestamps[phone]
                 reset_count += 1
+            else:
+                # Criar lock novo mesmo se não existia
+                session_locks[phone] = asyncio.Lock()
+                reset_count += 1
+    
+    logging.info(f"Locks resetados para {reset_count} contas do usuário {current_user['email']}")
     
     return {
         "message": f"Locks resetados para {reset_count} contas",
-        "reset_count": reset_count
+        "reset_count": reset_count,
+        "success": True
     }
+
+@api_router.post("/sessions/reset-all-locks")
+async def reset_all_locks(current_user: dict = Depends(get_current_user)):
+    """Reset ALL session locks - Admin only or user's own locks"""
+    if current_user.get('is_admin', False):
+        # Admin pode resetar todos
+        count = force_release_all_locks()
+        logging.warning(f"Admin {current_user['email']} forçou reset de TODOS os {count} locks")
+        return {
+            "message": f"TODOS os {count} locks foram resetados",
+            "reset_count": count,
+            "success": True
+        }
+    else:
+        # Usuário normal só reseta os próprios
+        return await reset_session_locks(current_user)
 
 @api_router.get("/sessions/status")
 async def get_sessions_status(current_user: dict = Depends(get_current_user)):
