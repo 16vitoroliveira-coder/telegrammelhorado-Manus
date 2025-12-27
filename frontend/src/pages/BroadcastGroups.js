@@ -31,6 +31,7 @@ const BroadcastGroups = () => {
   const [resettingLocks, setResettingLocks] = useState(false);
   const [continuousMode, setContinuousMode] = useState(true); // Modo contínuo por padrão
   const wsRef = useRef(null);
+  const pollingRef = useRef(false);
 
   const handleBroadcastUpdate = useCallback((data) => {
     setBroadcastStatus(prev => {
