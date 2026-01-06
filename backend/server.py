@@ -1857,8 +1857,9 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                                      groups: List[dict], message: str, continuous: bool):
     """
     Worker contínuo para uma conta específica
-    Mantém conexão aberta e dispara em loop infinito
-    INTELIGENTE: Separa grupos bloqueados (sem permissão) dos que podem ser tentados novamente
+    Mantém conexão aberta e dispara em loop INFINITO até cancelar
+    NUNCA PARA - mesmo quando todos os grupos de uma rodada forem processados
+    INTELIGENTE: Separa grupos bloqueados e só envia para grupos ativos
     """
     phone = account['phone']
     
@@ -1923,8 +1924,9 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
         active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'sending'
         
         round_num = 0
+        consecutive_all_blocked_rounds = 0  # Contador de rodadas consecutivas com todos bloqueados
         
-        # LOOP INFINITO até cancelar
+        # LOOP INFINITO até cancelar - NUNCA para sozinho em modo contínuo
         while True:
             # Verificar se foi cancelado
             if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
@@ -1937,11 +1939,38 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             # Filtrar grupos ativos (remover bloqueados)
             active_groups = [g for g in groups if g.get('telegram_id') not in blocked_groups]
             
-            # Se não tem mais grupos ativos, parar
+            # Se não tem mais grupos ativos em modo contínuo, aguardar e continuar tentando
             if not active_groups:
-                logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os grupos bloqueados - finalizando")
-                active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'all_blocked'
-                break
+                if continuous:
+                    consecutive_all_blocked_rounds += 1
+                    logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os {len(blocked_groups)} grupos bloqueados - aguardando 30s (rodada {consecutive_all_blocked_rounds})")
+                    active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'waiting_all_blocked'
+                    active_broadcasts[broadcast_id]['accounts'][phone]['active_groups'] = 0
+                    
+                    # Aguardar antes de verificar novamente (mas verificar cancelamento)
+                    for _ in range(30):  # 30 segundos em chunks de 1s
+                        if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
+                            break
+                        await asyncio.sleep(1)
+                    
+                    # Se muitas rodadas consecutivas com todos bloqueados, dar pausa maior
+                    if consecutive_all_blocked_rounds >= 10:
+                        logging.info(f"[DISPARO {broadcast_id}][{phone}] ⏳ Muitas rodadas bloqueadas - pausa de 2min")
+                        for _ in range(120):
+                            if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
+                                break
+                            await asyncio.sleep(1)
+                        consecutive_all_blocked_rounds = 0
+                    
+                    continue  # Volta para o início do loop
+                else:
+                    # Modo único - pode parar
+                    logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os grupos bloqueados - finalizando (modo único)")
+                    active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'all_blocked'
+                    break
+            
+            # Reset contador se tem grupos ativos
+            consecutive_all_blocked_rounds = 0
             
             # Atualizar contador de grupos ativos
             active_broadcasts[broadcast_id]['accounts'][phone]['active_groups'] = len(active_groups)
