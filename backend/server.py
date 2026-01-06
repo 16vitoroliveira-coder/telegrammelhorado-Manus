@@ -2128,11 +2128,19 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                 logging.info(f"[DISPARO {broadcast_id}][{phone}] Modo único - finalizando")
                 break
             
-            # Pequena pausa entre rodadas
-            await asyncio.sleep(random.uniform(1, 3))
+            # MODO CONTÍNUO: Reiniciar imediatamente sem pausa longa
+            # Pequena pausa mínima apenas para não sobrecarregar
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+            
+            # Indicar que está reiniciando
+            active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'restarting'
+            active_broadcasts[broadcast_id]['accounts'][phone]['current_group'] = f"🔄 Reiniciando rodada {round_num + 1}..."
+            
+            logging.info(f"[DISPARO {broadcast_id}][{phone}] 🔄 REINICIANDO imediatamente para rodada {round_num + 1}")
         
-        # Worker finalizado
-        if active_broadcasts[broadcast_id]['accounts'][phone]['status'] != 'all_blocked':
+        # Worker finalizado (só chega aqui se foi cancelado ou modo único)
+        final_status = active_broadcasts[broadcast_id]['accounts'][phone].get('status', 'unknown')
+        if final_status not in ['all_blocked', 'waiting_all_blocked', 'cancelled']:
             active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'completed'
         active_broadcasts[broadcast_id]['accounts'][phone]['current_group'] = None
         
