@@ -1788,21 +1788,50 @@ async def run_continuous_broadcast(broadcast_id: str, user_id: str, accounts: Li
     """
     DISPARO CONTÍNUO - Loop infinito até cancelar
     Cada conta mantém conexão aberta e dispara continuamente
+    CADA CONTA TRABALHA INDEPENDENTEMENTE - não espera outras contas
     """
     try:
         logging.info(f"[DISPARO {broadcast_id}] 🚀 INICIANDO DISPARO CONTÍNUO")
         logging.info(f"[DISPARO {broadcast_id}] {len(accounts)} contas | {len(groups)} grupos | Modo: {'CONTÍNUO' if continuous else 'ÚNICO'}")
         
         # Cada conta vai trabalhar independentemente em paralelo
-        # Mantendo conexão aberta e disparando continuamente
+        # NÃO espera outras contas terminarem - cada uma faz seu loop infinito
         tasks = []
         for account in accounts:
-            tasks.append(account_continuous_worker(
+            # Criar task para cada conta - trabalha independentemente
+            task = asyncio.create_task(account_continuous_worker(
                 broadcast_id, user_id, account, groups.copy(), message, continuous
             ))
+            tasks.append(task)
         
-        # Executa todos os workers em paralelo
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Loop principal - monitora até todas as contas pararem ou cancelamento
+        while True:
+            # Verificar cancelamento
+            if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
+                logging.info(f"[DISPARO {broadcast_id}] 🛑 Cancelamento detectado - parando todas as contas")
+                # Cancelar todas as tasks
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                break
+            
+            # Verificar se todas as tasks terminaram
+            all_done = all(task.done() for task in tasks)
+            if all_done:
+                logging.info(f"[DISPARO {broadcast_id}] Todas as contas finalizaram")
+                break
+            
+            # Pequena pausa para não sobrecarregar o loop
+            await asyncio.sleep(1)
+        
+        # Aguardar tasks terminarem (com timeout)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            logging.warning(f"[DISPARO {broadcast_id}] Timeout aguardando tasks")
         
         # Se chegou aqui, foi cancelado ou terminou
         if broadcast_id in active_broadcasts:
