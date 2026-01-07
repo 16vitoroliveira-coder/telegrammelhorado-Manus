@@ -2320,13 +2320,9 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             })
     
     finally:
-        # Sempre desconectar e liberar lock
-        if client:
-            try:
-                await client.disconnect()
-            except:
-                pass
-        release_lock(phone, lock)
+        # Liberar cliente no manager (não desconecta, apenas marca como disponível)
+        # O cliente pode ser reutilizado por outras operações
+        await client_manager.release_client(phone, disconnect=False)
 
 @api_router.get("/broadcast/{broadcast_id}/status")
 async def get_broadcast_status(broadcast_id: str, current_user: dict = Depends(get_current_user)):
