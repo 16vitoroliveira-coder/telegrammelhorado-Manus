@@ -2222,6 +2222,28 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                 except Exception as e:
                     error_str = str(e)[:100]
                     
+                    # ERRO CRÍTICO DE IP DUPLICADO - Parar worker e invalidar sessão
+                    if "two different ip" in error_str.lower() or "authorization key" in error_str.lower():
+                        logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ ERRO DE SESSÃO: {error_str}")
+                        await client_manager.invalidate_session(phone)
+                        
+                        # Marcar conta como inativa
+                        await db.accounts.update_one(
+                            {"phone": phone},
+                            {"$set": {"session_string": None, "is_active": False}}
+                        )
+                        
+                        active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'session_error'
+                        active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = "Sessão expirada - refaça login"
+                        
+                        await send_broadcast_update(user_id, {
+                            "type": "account_error",
+                            "broadcast_id": broadcast_id,
+                            "phone": phone,
+                            "error": "Sessão expirada - refaça o login na aba Contas"
+                        })
+                        return  # Sair do worker completamente
+                    
                     # Verificar se é erro permanente de permissão
                     permanent_errors = [
                         "chat_write_forbidden", "channel_private", "user_banned", 
