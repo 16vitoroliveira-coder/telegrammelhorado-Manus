@@ -64,6 +64,146 @@ lock_timestamps: Dict[str, datetime] = {}
 # Timeout máximo para operações (2 minutos)
 MAX_LOCK_TIME = 120
 
+# ============== Gerenciador de Clientes Singleton ==============
+# Mantém uma única conexão por conta para evitar erro de IP duplicado
+
+class TelegramClientManager:
+    """
+    Gerenciador singleton de clientes Telegram.
+    Mantém apenas UMA conexão ativa por número de telefone.
+    Evita o erro 'authorization key was used under two different IP addresses'
+    """
+    _clients: Dict[str, TelegramClient] = {}
+    _client_locks: Dict[str, asyncio.Lock] = {}
+    _client_in_use: Dict[str, bool] = {}
+    
+    @classmethod
+    def get_client_lock(cls, phone: str) -> asyncio.Lock:
+        """Obtém ou cria um lock para o cliente"""
+        if phone not in cls._client_locks:
+            cls._client_locks[phone] = asyncio.Lock()
+        return cls._client_locks[phone]
+    
+    @classmethod
+    async def get_client(cls, phone: str, api_id: int, api_hash: str) -> TelegramClient:
+        """
+        Obtém ou cria um cliente para o telefone.
+        Se já existe um cliente conectado, reutiliza.
+        """
+        lock = cls.get_client_lock(phone)
+        
+        async with lock:
+            # Verificar se já existe cliente conectado
+            if phone in cls._clients:
+                client = cls._clients[phone]
+                try:
+                    if client.is_connected():
+                        # Verificar se está autorizado
+                        if await client.is_user_authorized():
+                            logging.info(f"[ClientManager] Reutilizando cliente existente para {phone}")
+                            cls._client_in_use[phone] = True
+                            return client
+                except Exception as e:
+                    logging.warning(f"[ClientManager] Cliente existente com problema para {phone}: {e}")
+                
+                # Cliente existe mas não está funcionando, desconectar
+                try:
+                    await client.disconnect()
+                except:
+                    pass
+                del cls._clients[phone]
+            
+            # Criar novo cliente
+            logging.info(f"[ClientManager] Criando novo cliente para {phone}")
+            session_name = f"sessions/{phone}"
+            
+            # Configurar SQLite
+            try:
+                sqlite3.connect(f"{session_name}.session", timeout=30.0).close()
+            except:
+                pass
+            
+            client = TelegramClient(
+                session_name,
+                api_id,
+                api_hash,
+                connection_retries=3,
+                retry_delay=1,
+                timeout=30
+            )
+            
+            await client.connect()
+            
+            if not await client.is_user_authorized():
+                await client.disconnect()
+                raise Exception(f"Conta {phone} não está autenticada. Por favor, faça login novamente.")
+            
+            cls._clients[phone] = client
+            cls._client_in_use[phone] = True
+            return client
+    
+    @classmethod
+    async def release_client(cls, phone: str, disconnect: bool = False):
+        """
+        Libera o cliente para uso por outras operações.
+        Se disconnect=True, desconecta completamente.
+        """
+        cls._client_in_use[phone] = False
+        
+        if disconnect and phone in cls._clients:
+            try:
+                await cls._clients[phone].disconnect()
+            except:
+                pass
+            del cls._clients[phone]
+            logging.info(f"[ClientManager] Cliente desconectado para {phone}")
+    
+    @classmethod
+    async def disconnect_all(cls):
+        """Desconecta todos os clientes"""
+        for phone in list(cls._clients.keys()):
+            try:
+                await cls._clients[phone].disconnect()
+            except:
+                pass
+        cls._clients.clear()
+        cls._client_in_use.clear()
+        logging.info(f"[ClientManager] Todos os clientes desconectados")
+    
+    @classmethod
+    def is_client_in_use(cls, phone: str) -> bool:
+        """Verifica se o cliente está em uso"""
+        return cls._client_in_use.get(phone, False)
+    
+    @classmethod
+    async def invalidate_session(cls, phone: str):
+        """
+        Invalida a sessão quando há erro de IP.
+        Remove o arquivo de sessão para forçar re-login.
+        """
+        # Desconectar cliente se existir
+        if phone in cls._clients:
+            try:
+                await cls._clients[phone].disconnect()
+            except:
+                pass
+            del cls._clients[phone]
+        
+        # Remover arquivo de sessão
+        session_file = f"sessions/{phone}.session"
+        try:
+            if os.path.exists(session_file):
+                os.remove(session_file)
+                logging.warning(f"[ClientManager] Sessão invalidada para {phone}")
+            journal_file = f"{session_file}-journal"
+            if os.path.exists(journal_file):
+                os.remove(journal_file)
+        except Exception as e:
+            logging.error(f"[ClientManager] Erro ao remover sessão {phone}: {e}")
+
+# Instância global
+client_manager = TelegramClientManager
+
 def get_session_lock(phone: str) -> asyncio.Lock:
     """Get or create a lock for a specific phone session"""
     if phone not in session_locks:
