@@ -1997,9 +1997,8 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                                      groups: List[dict], message: str, continuous: bool):
     """
     Worker contínuo para uma conta específica
+    Usa o ClientManager para evitar erro de múltiplos IPs
     Mantém conexão aberta e dispara em loop INFINITO até cancelar
-    NUNCA PARA - mesmo quando todos os grupos de uma rodada forem processados
-    INTELIGENTE: Separa grupos bloqueados e só envia para grupos ativos
     """
     phone = account['phone']
     
@@ -2016,14 +2015,14 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             "sent": 0,
             "errors": 0,
             "skipped": 0,
-            "blocked": 0,  # Contador de grupos bloqueados
+            "blocked": 0,
             "total": len(groups),
-            "active_groups": len(groups),  # Grupos ativos (não bloqueados)
+            "active_groups": len(groups),
             "round": 0,
             "flood_wait": None,
             "flood_wait_until": None,
             "last_error": None,
-            "blocked_groups": []  # Lista de grupos bloqueados com motivo
+            "blocked_groups": []
         }
     
     await send_broadcast_update(user_id, {
@@ -2033,29 +2032,45 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
         "data": active_broadcasts[broadcast_id]['accounts'][phone]
     })
     
-    # Adquirir lock
-    lock = await safe_acquire_lock(phone, timeout_seconds=180)
-    if not lock:
-        logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ Não conseguiu lock")
-        if broadcast_id in active_broadcasts:
-            active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'error'
-            active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = "Sessão ocupada"
-        return
-    
     client = None
     try:
         creds = random.choice(DEFAULT_API_CREDENTIALS)
         
-        # Conectar com retry
+        # Usar o ClientManager para obter cliente único
         for attempt in range(3):
             try:
-                client = await create_telegram_client(phone, creds['api_id'], creds['api_hash'])
+                client = await client_manager.get_client(phone, creds['api_id'], creds['api_hash'])
                 break
             except Exception as e:
+                error_str = str(e).lower()
+                
+                # Se for erro de IP duplicado, invalidar sessão e pedir re-login
+                if "two different ip" in error_str or "authorization key" in error_str:
+                    logging.error(f"[DISPARO {broadcast_id}][{phone}] ❌ Erro de sessão: {e}")
+                    await client_manager.invalidate_session(phone)
+                    
+                    # Marcar conta como precisando re-autenticação
+                    await db.accounts.update_one(
+                        {"phone": phone},
+                        {"$set": {"session_string": None, "is_active": False}}
+                    )
+                    
+                    if broadcast_id in active_broadcasts:
+                        active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'session_error'
+                        active_broadcasts[broadcast_id]['accounts'][phone]['last_error'] = "Sessão expirada - refaça o login"
+                    
+                    await send_broadcast_update(user_id, {
+                        "type": "account_error",
+                        "broadcast_id": broadcast_id,
+                        "phone": phone,
+                        "error": "Sessão expirada - refaça o login na aba Contas"
+                    })
+                    return
+                
                 logging.warning(f"[DISPARO {broadcast_id}][{phone}] Tentativa {attempt+1} falhou: {e}")
                 if attempt == 2:
                     raise
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
         
         if not client:
             raise Exception("Falha ao conectar")
@@ -2064,9 +2079,9 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
         active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'sending'
         
         round_num = 0
-        consecutive_all_blocked_rounds = 0  # Contador de rodadas consecutivas com todos bloqueados
+        consecutive_all_blocked_rounds = 0
         
-        # LOOP INFINITO até cancelar - NUNCA para sozinho em modo contínuo
+        # LOOP INFINITO até cancelar
         while True:
             # Verificar se foi cancelado
             if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
@@ -2079,21 +2094,19 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
             # Filtrar grupos ativos (remover bloqueados)
             active_groups = [g for g in groups if g.get('telegram_id') not in blocked_groups]
             
-            # Se não tem mais grupos ativos em modo contínuo, aguardar e continuar tentando
+            # Se não tem mais grupos ativos em modo contínuo, aguardar e continuar
             if not active_groups:
                 if continuous:
                     consecutive_all_blocked_rounds += 1
-                    logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os {len(blocked_groups)} grupos bloqueados - aguardando 30s (rodada {consecutive_all_blocked_rounds})")
+                    logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os {len(blocked_groups)} grupos bloqueados - aguardando 30s")
                     active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'waiting_all_blocked'
                     active_broadcasts[broadcast_id]['accounts'][phone]['active_groups'] = 0
                     
-                    # Aguardar antes de verificar novamente (mas verificar cancelamento)
-                    for _ in range(30):  # 30 segundos em chunks de 1s
+                    for _ in range(30):
                         if active_broadcasts.get(broadcast_id, {}).get('status') == 'cancelled':
                             break
                         await asyncio.sleep(1)
                     
-                    # Se muitas rodadas consecutivas com todos bloqueados, dar pausa maior
                     if consecutive_all_blocked_rounds >= 10:
                         logging.info(f"[DISPARO {broadcast_id}][{phone}] ⏳ Muitas rodadas bloqueadas - pausa de 2min")
                         for _ in range(120):
@@ -2102,20 +2115,15 @@ async def account_continuous_worker(broadcast_id: str, user_id: str, account: di
                             await asyncio.sleep(1)
                         consecutive_all_blocked_rounds = 0
                     
-                    continue  # Volta para o início do loop
+                    continue
                 else:
-                    # Modo único - pode parar
-                    logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os grupos bloqueados - finalizando (modo único)")
+                    logging.info(f"[DISPARO {broadcast_id}][{phone}] ⚠️ Todos os grupos bloqueados - finalizando")
                     active_broadcasts[broadcast_id]['accounts'][phone]['status'] = 'all_blocked'
                     break
             
-            # Reset contador se tem grupos ativos
             consecutive_all_blocked_rounds = 0
-            
-            # Atualizar contador de grupos ativos
             active_broadcasts[broadcast_id]['accounts'][phone]['active_groups'] = len(active_groups)
             
-            # Embaralhar grupos ativos para cada rodada
             shuffled_groups = active_groups.copy()
             random.shuffle(shuffled_groups)
             
