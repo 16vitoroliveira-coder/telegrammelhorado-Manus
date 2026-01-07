@@ -944,6 +944,55 @@ async def get_sessions_status(current_user: dict = Depends(get_current_user)):
     
     return {"sessions": status}
 
+@api_router.post("/sessions/invalidate/{phone}")
+async def invalidate_session(phone: str, current_user: dict = Depends(get_current_user)):
+    """
+    Invalida uma sessão com problema de IP duplicado.
+    Remove o arquivo de sessão e marca conta como inativa.
+    O usuário precisará fazer login novamente.
+    """
+    # Verificar se a conta pertence ao usuário
+    account = await db.accounts.find_one({
+        "phone": phone,
+        "user_id": current_user['id']
+    })
+    
+    if not account:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+    
+    # Invalidar sessão via ClientManager
+    await client_manager.invalidate_session(phone)
+    
+    # Marcar conta como inativa no banco
+    await db.accounts.update_one(
+        {"phone": phone, "user_id": current_user['id']},
+        {"$set": {"session_string": None, "is_active": False}}
+    )
+    
+    logging.warning(f"Sessão invalidada para {phone} pelo usuário {current_user['email']}")
+    
+    return {
+        "message": f"Sessão de {phone} invalidada. Por favor, faça login novamente na aba Contas.",
+        "success": True
+    }
+
+@api_router.post("/sessions/disconnect-all")
+async def disconnect_all_clients(current_user: dict = Depends(get_current_user)):
+    """Desconecta todos os clientes ativos do usuário"""
+    accounts = await db.accounts.find({"user_id": current_user['id']}, {"_id": 0}).to_list(100)
+    
+    disconnected = 0
+    for account in accounts:
+        phone = account.get('phone')
+        if phone:
+            await client_manager.release_client(phone, disconnect=True)
+            disconnected += 1
+    
+    return {
+        "message": f"{disconnected} clientes desconectados",
+        "disconnected": disconnected
+    }
+
 # ============== Public Groups Marketplace Routes ==============
 
 @api_router.get("/marketplace/groups")
